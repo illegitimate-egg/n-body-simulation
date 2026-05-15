@@ -216,75 +216,48 @@ async fn main() {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
 
         egui_macroquad::ui(|egui_ctx| {
-            egui::Window::new("Simulation Control")
+            egui::Window::new("Simulation Control").default_pos(egui::Pos2::new(400.0, 200.0))
                 .show(egui_ctx, |ui| {
                     ui.label(
                     "Right click to delete. While paused objects can be moved. After pressing create click anywhere to create a new mass.");
+
+                    ui.label("Status:");
+                    if ui.button(mode.status()).clicked() {
+                        match mode {
+                            Mode::Simulating => mode = Mode::Paused,
+                            Mode::Paused => mode = Mode::Simulating,
+                        }
+                    }
+
+                    if ui.button("Create new mass").clicked() {
+                        mouse_state = MouseStatus::CreatingStart;
+                    }
+
+                    ui.add(egui::Slider::new(&mut time_multiplier, -1f32..=4f32).text("Time warp (-1x - 4x)"));
+
+                    ui.separator();
+
+                    // FW Time prediction
+                    ui.checkbox(&mut predict_future, "Predict future");
+                    ui.add_enabled_ui(predict_future, |fwui| {
+                        let fw_pts_label = fwui.label("FW Simulation points");
+                        fwui.add(egui::Slider::new(&mut fw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(fw_pts_label.id);
+                        let fw_epoch_label = fwui.label("Max Δepoch");
+                        fwui.add(egui::DragValue::new(&mut fw_predict_d_epoch)).labelled_by(fw_epoch_label.id);
+                        fwui.add(egui::Checkbox::new(&mut fw_orbit_line_fade, "Fade FW line"));
+                    });
+
+                    // BW Time prediction
+                    ui.checkbox(&mut predict_past, "Predict past");
+                    ui.add_enabled_ui(predict_past, |bwui| {
+                        let bw_pts_label = bwui.label("BW Simulation points");
+                        bwui.add(egui::Slider::new(&mut bw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(bw_pts_label.id);
+                        let bw_epoch_label = bwui.label("Max Δepoch");
+                        bwui.add(egui::DragValue::new(&mut bw_predict_d_epoch)).labelled_by(bw_epoch_label.id);
+                        bwui.add(egui::Checkbox::new(&mut bw_orbit_line_fade, "Fade BW line"));
+                    });
                 });
         });
-
-        widgets::Window::new(hash!(), vec2(400.0, 400.0), vec2(600.0, 430.0))
-            .label("Simulation Control")
-            .titlebar(true)
-            .ui(&mut root_ui(), |ui| {
-                ui.label(
-                    None,
-                    "Right click to delete. While paused objects can be moved. After pressing create click anywhere to create a new mass.",
-                );
-
-                ui.label(None, "Status:");
-                if ui.button(None, mode.status()) {
-                    match mode {
-                        Mode::Simulating => mode = Mode::Paused,
-                        Mode::Paused => mode = Mode::Simulating,
-                    }
-                }
-
-                if ui.button(None, "Create new mass") {
-                    mouse_state = MouseStatus::CreatingStart;
-                }
-                let tw_range = -1f32..4f32;
-                ui.slider(
-                    hash!(),
-                    "Time warp (-1x, 4x)",
-                    tw_range.clone(),
-                    &mut time_multiplier,
-                );
-
-                ui.checkbox(hash!(), "Predict future", &mut predict_future);
-                let fw_predict_pts_range = 10f32..10000f32;
-                ui.slider(
-                    hash!(),
-                    "Forward prediction steps (rounded)",
-                    fw_predict_pts_range.clone(),
-                    &mut fw_predict_pts,
-                );
-                let mut fw_predict_d_epoch_string = fw_predict_d_epoch.to_string();
-                ui.input_text(
-                    hash!(),
-                    "Maximum delta epoch",
-                    &mut fw_predict_d_epoch_string,
-                );
-                fw_predict_d_epoch = fw_predict_d_epoch_string.parse().unwrap(); // FIX: This shit please big dawg
-                ui.checkbox(hash!(), "Fade FW line", &mut fw_orbit_line_fade);
-
-                ui.checkbox(hash!(), "Predict past", &mut predict_past);
-                let bw_predict_pts_range = 10f32..10000f32;
-                ui.slider(
-                    hash!(),
-                    "Backward prediction steps (rounded)",
-                    bw_predict_pts_range.clone(),
-                    &mut bw_predict_pts,
-                );
-                let mut bw_predict_d_epoch_string = bw_predict_d_epoch.to_string();
-                ui.input_text(
-                    hash!(),
-                    "Maximum delta epoch",
-                    &mut bw_predict_d_epoch_string,
-                );
-                bw_predict_d_epoch = bw_predict_d_epoch_string.parse().unwrap(); // FIX: This shit please big dawg
-                ui.checkbox(hash!(), "Fade BW line", &mut bw_orbit_line_fade);
-            });
 
         if is_mouse_button_down(MouseButton::Left) {
             match mouse_state {
@@ -331,7 +304,19 @@ async fn main() {
         } else {
             if mouse_state == MouseStatus::CreatingStart {
                 mouse_state = MouseStatus::Creating;
-            } else if mouse_state != MouseStatus::Creating {
+            } else if mouse_state == MouseStatus::Creating {
+                draw_circle(
+                    mouse_position().0,
+                    mouse_position().1,
+                    5.0,
+                    Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 0.5,
+                    },
+                );
+            } else {
                 mouse_state = MouseStatus::Released;
             }
         }
