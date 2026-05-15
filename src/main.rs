@@ -1,7 +1,4 @@
-use macroquad::{
-    prelude::*,
-    ui::{hash, root_ui, widgets},
-};
+use macroquad::prelude::*;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
 // All masses are singularities
@@ -20,6 +17,12 @@ impl Default for Object {
             mass: 1.0, // 1 blistering kilogram
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CTXMenu {
+    object: usize,
+    position: egui::Pos2,
 }
 
 enum Mode {
@@ -212,6 +215,8 @@ async fn main() {
 
     let mut mouse_state = MouseStatus::Released;
 
+    let mut ctx_menu: Option<CTXMenu> = None;
+
     loop {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
 
@@ -257,6 +262,31 @@ async fn main() {
                         bwui.add(egui::Checkbox::new(&mut bw_orbit_line_fade, "Fade BW line"));
                     });
                 });
+
+            if let Some(ctx_now) = ctx_menu {
+                egui::Window::new(format!("Mass {}", ctx_now.object)).fixed_pos(ctx_now.position).show(egui_ctx, |ui| {
+                    ui.label("Right click nowhere to close");
+                    
+                    if ui.button("Delete").clicked() {
+                        object_vector.remove(ctx_now.object);
+                        ctx_menu = None;
+                    }
+                    let mass_label = ui.label("Object mass / kg");
+                    ui.add(egui::DragValue::new(&mut object_vector[ctx_now.object].mass)).labelled_by(mass_label.id);
+
+                    ui.label("Position (s) / m");
+                    ui.columns(2, |colui| {
+                        colui[0].add(egui::DragValue::new(&mut object_vector[ctx_now.object].position.x));
+                        colui[1].add(egui::DragValue::new(&mut object_vector[ctx_now.object].position.y));
+                    });
+
+                    ui.label("Velocity (v) / ms^-1");
+                    ui.columns(2, |colui| {
+                        colui[0].add(egui::DragValue::new(&mut object_vector[ctx_now.object].velocity.x));
+                        colui[1].add(egui::DragValue::new(&mut object_vector[ctx_now.object].velocity.y));
+                    });
+                });
+            }
         });
 
         if is_mouse_button_down(MouseButton::Left) {
@@ -335,7 +365,7 @@ async fn main() {
             }
         }
 
-        // Delete mass
+        // Open ctx menu
         if is_mouse_button_down(MouseButton::Right) {
             let mouse_pixel_position = Vec2::new(
                 (mouse_position().0 + 1900.0) / 1000.0,
@@ -352,11 +382,13 @@ async fn main() {
                 if radius.contains(&mouse_pixel_position) {
                     found_index = Some(i);
                     break;
+                } else {
+                    ctx_menu = None;
                 }
             }
 
             if let Some(idx) = found_index {
-                object_vector.remove(idx);
+                ctx_menu = Some(CTXMenu { object: idx, position: egui::Pos2::new(mouse_position().0, mouse_position().1) });
             }
         }
 
