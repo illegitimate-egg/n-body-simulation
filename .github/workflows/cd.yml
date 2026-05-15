@@ -1,0 +1,85 @@
+name: Deploy to Github Pages
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Build target webassembly
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Prepare output directory
+        run: mkdir -p web-out
+
+      - name: Copy wasm to output
+        run : |
+          # Find the wasm
+          WASM_PATH=$(find target/wasm32-unknown-unknown/release -maxdepth 1 -name "*.wasm" -type f)
+          if [ -z "$WASM_PATH" ]; then
+            echo "No .wasm file found"
+            exit 1
+          fi
+          cp "$WASM_PATH" web-out/
+
+      - name: Copy assets
+        run: |
+          if [ -d "assets" ]; then
+            cp -r assets web-out/
+          fi
+
+      - name: Create index.html
+        run: |
+          CRATE_NAME=$(grep '^name = ' Cargo.toml | head -1 | cut -d '"' -f2)
+          cat > web-out/index.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="utf-8">
+              <title>n-body gravs</title>
+              <style>
+                  html, body, canvas {
+                      margin: 0px;
+                      padding: 0px;
+                      width: 100%;
+                      height: 100%;
+                      overflow: hidden;
+                      position: absolute;
+                      background: black;
+                      z-index: 0;
+                  }
+              </style>
+          </head>
+          <body>
+              <canvas id="glcanvas" tabindex='1'></canvas>
+              <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+              <script>load("$CRATE_NAME.wasm");</script>
+          </body>
+          </html>
+          EOF
+
+      - name: Deploy to Github Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./web-out
+          publish_branch: gh-pages
+          force_orphan: true
