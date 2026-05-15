@@ -30,8 +30,10 @@ enum Mode {
 #[derive(Debug, PartialEq)]
 enum MouseStatus {
     Released,
-    Dragging(usize),
+    Dragging(usize), // I have blood on my hands
     Held,
+    Creating,
+    CreatingStart,
 }
 
 impl Mode {
@@ -43,8 +45,8 @@ impl Mode {
     }
 }
 
-fn physics_step(object_vector: &mut Vec<Object>, ut: &mut f32, dt: f32, time_multiplier: f32) {
-    let vector_state = object_vector.clone();
+fn physics_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
+    let vector_state = object_vector.to_owned();
 
     for object in object_vector.iter_mut().enumerate() {
         let index = object.0;
@@ -84,10 +86,12 @@ fn physics_step(object_vector: &mut Vec<Object>, ut: &mut f32, dt: f32, time_mul
             );
         }
 
-        // Make velocity velocit
-        object.position += object.velocity * dt * time_multiplier;
+        // TODO: Update integrator
+
         // Apply the acceleration to the velocity
         object.velocity += a * dt * time_multiplier;
+        // Make velocity velocit
+        object.position += object.velocity * dt * time_multiplier;
     }
 
     *ut += dt * time_multiplier;
@@ -155,7 +159,7 @@ fn draw_prediction(
 }
 
 fn predict(
-    initial_conditions: &Vec<Object>,
+    initial_conditions: &[Object],
     predict_pts: i32,
     predict_d_epoch: f32,
 ) -> Vec<Vec<Object>> {
@@ -163,7 +167,7 @@ fn predict(
 
     let time_step = predict_d_epoch / predict_pts as f32;
 
-    let mut running_conditions = initial_conditions.clone();
+    let mut running_conditions = initial_conditions.to_owned();
     let mut ut: f32 = 0.0;
 
     for _point in 0..predict_pts {
@@ -181,24 +185,30 @@ async fn main() {
     let mut ut: f32 = 0.0;
 
     // Create a mass
-    object_vector.push(Object { velocity: Vec2::new(0.0, 0.02), ..Default::default() } );
+    object_vector.push(Object {
+        velocity: Vec2::new(0.0, 0.02),
+        ..Default::default()
+    });
 
     // Create another mass
-    object_vector.push(Object { position: Vec2::new(2.1, 2.0), velocity: Vec2::new(0.0, 0.0), mass: 1000000.0 });
-
+    object_vector.push(Object {
+        position: Vec2::new(2.1, 2.0),
+        velocity: Vec2::new(0.0, 0.0),
+        mass: 1000000.0,
+    });
 
     let mut mode = Mode::Paused;
     let mut time_multiplier = 1.0;
 
     let mut predict_future = true;
     let mut fw_predict_pts: f32 = 1000.0; // This being f32 makes me sad
-    let mut fw_predict_d_epoch: f32 = 20.0; // Cry
+    let mut fw_predict_d_epoch: f32 = 20.0;
     let mut fw_orbit_line_fade = false;
 
     let mut predict_past = false;
     let mut bw_predict_pts: f32 = 1000.0; // This being f32 makes me sad
-    let mut bw_predict_d_epoch: f32 = 20.0; // Cry
-    let mut bw_orbit_line_fade = false;
+    let mut bw_predict_d_epoch: f32 = 20.0;
+    let mut bw_orbit_line_fade = true;
 
     let mut mouse_state = MouseStatus::Released;
 
@@ -211,7 +221,7 @@ async fn main() {
             .ui(&mut root_ui(), |ui| {
                 ui.label(
                     None,
-                    "While Simulating, forces can be applied. While paused objects can be moved.",
+                    "Right click to delete. While paused objects can be moved. After pressing create click anywhere to create a new mass.",
                 );
 
                 ui.label(None, "Status:");
@@ -221,6 +231,11 @@ async fn main() {
                         Mode::Paused => mode = Mode::Simulating,
                     }
                 }
+
+                if ui.button(None, "Create new mass") {
+                    mouse_state = MouseStatus::CreatingStart;
+                }
+                
                 let tw_range = -1f32..4f32;
                 ui.slider(
                     hash!(),
@@ -266,29 +281,52 @@ async fn main() {
 
         if is_mouse_button_down(MouseButton::Left) {
             match mouse_state {
-                MouseStatus::Dragging(_) => {}
-                MouseStatus::Held => {}
                 MouseStatus::Released => {
                     let mouse_pixel_position = Vec2::new(
                         (mouse_position().0 + 1900.0) / 1000.0,
                         (mouse_position().1 + 1900.0) / 1000.0,
                     );
 
-                    mouse_state = MouseStatus::Held;
-                    for i in 0..object_vector.len() {
+                    let mut found_index = None;
+                    for (i, object) in object_vector.iter_mut().enumerate() {
                         let radius = Circle::new(
-                            object_vector[i].position.x,
-                            object_vector[i].position.y,
+                            object.position.x,
+                            object.position.y,
                             5.0 / 1000.0, // 1000 is the zoom factor
                         );
                         if radius.contains(&mouse_pixel_position) {
-                            mouse_state = MouseStatus::Dragging(i);
+                            found_index = Some(i);
+                            break;
                         }
                     }
+
+                    mouse_state = match found_index {
+                        Some(idx) => MouseStatus::Dragging(idx),
+                        None => MouseStatus::Held,
+                    };
                 }
+                MouseStatus::Creating => {
+                    let mouse_pixel_position = Vec2::new(
+                        (mouse_position().0 + 1900.0) / 1000.0,
+                        (mouse_position().1 + 1900.0) / 1000.0,
+                    );
+
+                    object_vector.push(Object {
+                        position: mouse_pixel_position,
+                        velocity: Vec2::new(0.0, 0.0),
+                        mass: 1000000.0,
+                    });
+
+                    mouse_state = MouseStatus::Released;
+                }
+                _ => {}
             }
         } else {
-            mouse_state = MouseStatus::Released;
+            if mouse_state == MouseStatus::CreatingStart {
+                mouse_state = MouseStatus::Creating;
+            } else if mouse_state != MouseStatus::Creating {
+                mouse_state = MouseStatus::Released;
+            }
         }
 
         match mode {
@@ -302,6 +340,31 @@ async fn main() {
 
                     object_vector[index].position = mouse_pixel_position;
                 }
+            }
+        }
+
+        // Delete mass
+        if is_mouse_button_down(MouseButton::Right) {
+            let mouse_pixel_position = Vec2::new(
+                (mouse_position().0 + 1900.0) / 1000.0,
+                (mouse_position().1 + 1900.0) / 1000.0,
+            );
+
+            let mut found_index = None;
+            for (i, object) in object_vector.iter_mut().enumerate() {
+                let radius = Circle::new(
+                    object.position.x,
+                    object.position.y,
+                    5.0 / 1000.0, // 1000 is the zoom factor
+                );
+                if radius.contains(&mouse_pixel_position) {
+                    found_index = Some(i);
+                    break;
+                }
+            }
+
+            if let Some(idx) = found_index {
+                object_vector.remove(idx);
             }
         }
 
