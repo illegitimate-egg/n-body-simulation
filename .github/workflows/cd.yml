@@ -71,6 +71,8 @@ jobs:
           <body>
               <canvas id="glcanvas" tabindex='1'></canvas>
               <script src="https://not-fl3.github.io/miniquad-samples/mq_js_bundle.js"></script>
+              <script src="https://raw.githubusercontent.com/optozorax/quad-url/368519c488aac55b73d3f29ed99c1afb9091d989/js/quad-url.js"></script>
+              <script src="https://raw.githubusercontent.com/not-fl3/sapp-jsutils/4aa083662bfea725bf6e30453c009c6d02d667db/js/sapp_jsutils.js"></script>
               <script>load("$CRATE_NAME.wasm");</script>
           </body>
           </html>

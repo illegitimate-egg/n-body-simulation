@@ -215,6 +215,14 @@ async fn main() {
     loop {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
 
+        egui_macroquad::ui(|egui_ctx| {
+            egui::Window::new("Simulation Control")
+                .show(egui_ctx, |ui| {
+                    ui.label(
+                    "Right click to delete. While paused objects can be moved. After pressing create click anywhere to create a new mass.");
+                });
+        });
+
         widgets::Window::new(hash!(), vec2(400.0, 400.0), vec2(600.0, 430.0))
             .label("Simulation Control")
             .titlebar(true)
@@ -235,7 +243,6 @@ async fn main() {
                 if ui.button(None, "Create new mass") {
                     mouse_state = MouseStatus::CreatingStart;
                 }
-                
                 let tw_range = -1f32..4f32;
                 ui.slider(
                     hash!(),
@@ -423,6 +430,7 @@ async fn main() {
             DARKGRAY,
         );
 
+        egui_macroquad::draw();
         next_frame().await;
 
         // std::process::exit(1);
