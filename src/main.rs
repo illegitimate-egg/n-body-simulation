@@ -23,6 +23,7 @@ impl Default for Object {
 struct CTXMenu {
     object: usize,
     position: egui::Pos2,
+    interaction_rect: egui::Rect,
 }
 
 enum Mode {
@@ -264,27 +265,45 @@ async fn main() {
                 });
 
             if let Some(ctx_now) = ctx_menu {
-                egui::Window::new(format!("Mass {}", ctx_now.object)).fixed_pos(ctx_now.position).show(egui_ctx, |ui| {
-                    ui.label("Right click nowhere to close");
-                    
-                    if ui.button("Delete").clicked() {
-                        object_vector.remove(ctx_now.object);
-                        ctx_menu = None;
-                    }
-                    let mass_label = ui.label("Object mass / kg");
-                    ui.add(egui::DragValue::new(&mut object_vector[ctx_now.object].mass)).labelled_by(mass_label.id);
+                let ctx_menu_window = egui::Window::new(format!("Mass {}", ctx_now.object))
+                    .fixed_pos(ctx_now.position)
+                    .collapsible(false)
+                    .show(egui_ctx, |ui| {
+                        if ui.button("Delete").clicked() {
+                            object_vector.remove(ctx_now.object);
+                            ctx_menu = None;
+                        }
+                        let mass_label = ui.label("Object mass / kg");
+                        ui.add(egui::DragValue::new(
+                            &mut object_vector[ctx_now.object].mass,
+                        ))
+                        .labelled_by(mass_label.id);
 
-                    ui.label("Position (s) / m");
-                    ui.columns(2, |colui| {
-                        colui[0].add(egui::DragValue::new(&mut object_vector[ctx_now.object].position.x));
-                        colui[1].add(egui::DragValue::new(&mut object_vector[ctx_now.object].position.y));
+                        ui.label("Position (s) / m");
+                        ui.columns(2, |colui| {
+                            colui[0].add(egui::DragValue::new(
+                                &mut object_vector[ctx_now.object].position.x,
+                            ));
+                            colui[1].add(egui::DragValue::new(
+                                &mut object_vector[ctx_now.object].position.y,
+                            ));
+                        });
+
+                        ui.label("Velocity (v) / ms^-1");
+                        ui.columns(2, |colui| {
+                            colui[0].add(egui::DragValue::new(
+                                &mut object_vector[ctx_now.object].velocity.x,
+                            ));
+                            colui[1].add(egui::DragValue::new(
+                                &mut object_vector[ctx_now.object].velocity.y,
+                            ));
+                        });
                     });
 
-                    ui.label("Velocity (v) / ms^-1");
-                    ui.columns(2, |colui| {
-                        colui[0].add(egui::DragValue::new(&mut object_vector[ctx_now.object].velocity.x));
-                        colui[1].add(egui::DragValue::new(&mut object_vector[ctx_now.object].velocity.y));
-                    });
+                ctx_menu = Some(CTXMenu {
+                    object: ctx_now.object,
+                    position: ctx_now.position,
+                    interaction_rect: ctx_menu_window.unwrap().response.interact_rect,
                 });
             }
         });
@@ -292,6 +311,19 @@ async fn main() {
         if is_mouse_button_down(MouseButton::Left) {
             match mouse_state {
                 MouseStatus::Released => {
+                    if let Some(ctx) = ctx_menu {
+                        if !(ctx.interaction_rect.min.x < mouse_position().0
+                            && ctx.interaction_rect.max.x + ctx.interaction_rect.min.x
+                                > mouse_position().0
+                            && ctx.interaction_rect.min.y < mouse_position().1
+                            && ctx.interaction_rect.max.y + ctx.interaction_rect.min.y
+                                > mouse_position().1)
+                        {
+                            ctx_menu = None;
+                        } else {
+                        }
+                    }
+
                     let mouse_pixel_position = Vec2::new(
                         (mouse_position().0 + 1900.0) / 1000.0,
                         (mouse_position().1 + 1900.0) / 1000.0,
@@ -388,7 +420,14 @@ async fn main() {
             }
 
             if let Some(idx) = found_index {
-                ctx_menu = Some(CTXMenu { object: idx, position: egui::Pos2::new(mouse_position().0, mouse_position().1) });
+                ctx_menu = Some(CTXMenu {
+                    object: idx,
+                    position: egui::Pos2::new(mouse_position().0, mouse_position().1),
+                    interaction_rect: egui::Rect {
+                        min: egui::Pos2::new(0.0, 0.0),
+                        max: egui::Pos2::new(0.0, 0.0),
+                    },
+                });
             }
         }
 
@@ -445,6 +484,13 @@ async fn main() {
             50.0,
             30.0,
             DARKGRAY,
+        );
+        draw_text(
+            "1000x zoom (1 pixel = 1 mm)",
+            20.0,
+            500.0,
+            20.0,
+            DARKGRAY
         );
 
         egui_macroquad::draw();
