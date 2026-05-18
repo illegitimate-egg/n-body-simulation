@@ -77,6 +77,7 @@ jobs:
               <script src="assets/mq_js_bundle.js"></script>
               <script src="assets/quad-url.js"></script>
               <script src="assets/sapp_jsutils.js"></script>
+              <script src="assets/butt-gravity.js"></script>
               <script>load("$CRATE_NAME.wasm");</script>
           </body>
           </html>
