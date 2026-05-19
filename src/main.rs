@@ -1,3 +1,5 @@
+use std::{any::Any, rc::Rc};
+
 use macroquad::prelude::*;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
@@ -24,6 +26,86 @@ struct CTXMenu {
     object: usize,
     position: egui::Pos2,
     interaction_rect: egui::Rect,
+}
+
+struct CameraController {
+    camera: Camera2D,
+    dragging: bool,
+    last_mouse: Vec2,
+}
+
+impl CameraController {
+    fn new() -> Self {
+        Self {
+            camera: Camera2D {
+                zoom: vec2(2.0 / screen_width() * 1000.0, -2.0 / screen_height() * 1000.0),
+                target: vec2(2.0, 2.0),
+                ..Default::default()
+            },
+            dragging: false,
+            last_mouse: mouse_position().into(),
+        }
+    }
+
+    fn update(&mut self) {
+        let mouse: Vec2 = mouse_position().into();
+
+        // Middle mouse OR Alt + Left Mouse
+        let drag_active = is_mouse_button_down(MouseButton::Middle)
+            || (is_key_down(KeyCode::LeftAlt) && is_mouse_button_down(MouseButton::Left));
+
+        // Start drag
+        if drag_active && !self.dragging {
+            self.dragging = true;
+            self.last_mouse = mouse;
+        }
+
+        // End drag
+        if !drag_active {
+            self.dragging = false;
+        }
+
+        // Pan camera
+        if self.dragging {
+            let mut delta = mouse - self.last_mouse;
+
+            // Flip y axis movement
+            delta.y = -delta.y;
+
+            // Convert screen movement into world movement
+            let zoom_scale = vec2(2.0 / screen_width(), 2.0 / screen_height());
+
+            self.camera.target -= delta * zoom_scale / self.camera.zoom.abs();
+
+            self.last_mouse = mouse;
+        }
+        // Scroll zoom
+        let (_, scroll_y) = mouse_wheel();
+
+        if scroll_y != 0.0 {
+            // Mouse position in screen space
+            let mouse_screen: Vec2 = mouse_position().into();
+
+            // World position BEFORE zoom
+            let world_before = self.camera.screen_to_world(mouse_screen);
+
+            // Zoom factor
+            let zoom_factor = if scroll_y > 0.0 { 1.1 } else { 0.9 };
+
+            // Apply zoom
+            self.camera.zoom *= zoom_factor;
+
+            // Clamp zoom
+            self.camera.zoom.x = self.camera.zoom.x.clamp(0.0005, 10.0);
+            self.camera.zoom.y = self.camera.zoom.y.clamp(-10.0, -0.0005);
+
+            // World position AFTER zoom
+            let world_after = self.camera.screen_to_world(mouse_screen);
+
+            // Move camera target so cursor stays fixed on same world point
+            self.camera.target += world_before - world_after;
+        }
+    }
 }
 
 enum Mode {
@@ -101,13 +183,13 @@ fn physics_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multip
     *ut += dt * time_multiplier;
 }
 
-fn draw_state(object_vector: &mut Vec<Object>, zoom: f32, position: Vec2) {
+fn draw_state(object_vector: &mut Vec<Object>) {
     for object in object_vector {
         // Draw it
         draw_circle(
-            object.position.x * zoom + position.x,
-            object.position.y * zoom + position.y,
-            5.0,
+            object.position.x,
+            object.position.y,
+            5.0/1000.0,
             BLACK,
         ); // Draw a thing
     }
@@ -116,8 +198,6 @@ fn draw_state(object_vector: &mut Vec<Object>, zoom: f32, position: Vec2) {
 // Outer vector is each step, inner vector is each object. Object indexs are constant
 fn draw_prediction(
     prediction: Vec<Vec<Object>>,
-    zoom: f32,
-    position: Vec2,
     color: Color,
     fade: bool,
 ) {
@@ -138,20 +218,20 @@ fn draw_prediction(
                 let mut fade_color = color;
                 fade_color.a = 1.0 - (point as f32 / number_of_timesteps as f32);
                 draw_line(
-                    x_0 * zoom + position.x,
-                    y_0 * zoom + position.y,
-                    x_1 * zoom + position.x,
-                    y_1 * zoom + position.y,
-                    1.5,
+                    x_0,
+                    y_0,
+                    x_1,
+                    y_1,
+                    1.5/1000.0,
                     fade_color,
                 );
             } else {
                 draw_line(
-                    x_0 * zoom + position.x,
-                    y_0 * zoom + position.y,
-                    x_1 * zoom + position.x,
-                    y_1 * zoom + position.y,
-                    1.5,
+                    x_0,
+                    y_0,
+                    x_1,
+                    y_1,
+                    1.5/1000.0,
                     color,
                 );
             }
@@ -218,8 +298,13 @@ async fn main() {
 
     let mut ctx_menu: Option<CTXMenu> = None;
 
+    let mut camera_controller = CameraController::new();
+
     loop {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
+
+        camera_controller.update();
+        set_camera(&camera_controller.camera);
 
         egui_macroquad::ui(|egui_ctx| {
             egui::Window::new("Simulation Control").default_pos(egui::Pos2::new(400.0, 200.0))
@@ -311,23 +396,16 @@ async fn main() {
         if is_mouse_button_down(MouseButton::Left) {
             match mouse_state {
                 MouseStatus::Released => {
-                    if let Some(ctx) = ctx_menu {
-                        if !(ctx.interaction_rect.min.x < mouse_position().0
+                    if let Some(ctx) = ctx_menu
+                        && !(ctx.interaction_rect.min.x < mouse_position().0
                             && ctx.interaction_rect.max.x + ctx.interaction_rect.min.x
                                 > mouse_position().0
                             && ctx.interaction_rect.min.y < mouse_position().1
                             && ctx.interaction_rect.max.y + ctx.interaction_rect.min.y
                                 > mouse_position().1)
-                        {
-                            ctx_menu = None;
-                        } else {
-                        }
+                    {
+                        ctx_menu = None;
                     }
-
-                    let mouse_pixel_position = Vec2::new(
-                        (mouse_position().0 + 1900.0) / 1000.0,
-                        (mouse_position().1 + 1900.0) / 1000.0,
-                    );
 
                     let mut found_index = None;
                     for (i, object) in object_vector.iter_mut().enumerate() {
@@ -336,7 +414,7 @@ async fn main() {
                             object.position.y,
                             5.0 / 1000.0, // 1000 is the zoom factor
                         );
-                        if radius.contains(&mouse_pixel_position) {
+                        if radius.contains(&camera_controller.camera.screen_to_world(mouse_position().into())) {
                             found_index = Some(i);
                             break;
                         }
@@ -348,13 +426,8 @@ async fn main() {
                     };
                 }
                 MouseStatus::Creating => {
-                    let mouse_pixel_position = Vec2::new(
-                        (mouse_position().0 + 1900.0) / 1000.0,
-                        (mouse_position().1 + 1900.0) / 1000.0,
-                    );
-
                     object_vector.push(Object {
-                        position: mouse_pixel_position,
+                        position: camera_controller.camera.screen_to_world(mouse_position().into()),
                         velocity: Vec2::new(0.0, 0.0),
                         mass: 1000000.0,
                     });
@@ -367,10 +440,11 @@ async fn main() {
             if mouse_state == MouseStatus::CreatingStart {
                 mouse_state = MouseStatus::Creating;
             } else if mouse_state == MouseStatus::Creating {
+                let world_mouse = camera_controller.camera.screen_to_world(mouse_position().into());
                 draw_circle(
-                    mouse_position().0,
-                    mouse_position().1,
-                    5.0,
+                    world_mouse.x,
+                    world_mouse.y,
+                    5.0/1000.0,
                     Color {
                         r: 0.0,
                         g: 0.0,
@@ -387,31 +461,21 @@ async fn main() {
             Mode::Simulating => {}
             Mode::Paused => {
                 if let MouseStatus::Dragging(index) = mouse_state {
-                    let mouse_pixel_position = Vec2::new(
-                        (mouse_position().0 + 1900.0) / 1000.0,
-                        (mouse_position().1 + 1900.0) / 1000.0,
-                    );
-
-                    object_vector[index].position = mouse_pixel_position;
+                    object_vector[index].position = camera_controller.camera.screen_to_world(mouse_position().into());
                 }
             }
         }
 
         // Open ctx menu
         if is_mouse_button_down(MouseButton::Right) {
-            let mouse_pixel_position = Vec2::new(
-                (mouse_position().0 + 1900.0) / 1000.0,
-                (mouse_position().1 + 1900.0) / 1000.0,
-            );
-
             let mut found_index = None;
             for (i, object) in object_vector.iter_mut().enumerate() {
                 let radius = Circle::new(
                     object.position.x,
                     object.position.y,
-                    5.0 / 1000.0, // 1000 is the zoom factor
+                    5.0 / 1000.0,
                 );
-                if radius.contains(&mouse_pixel_position) {
+                if radius.contains(&camera_controller.camera.screen_to_world(mouse_position().into())) {
                     found_index = Some(i);
                     break;
                 } else {
@@ -438,8 +502,6 @@ async fn main() {
                     fw_predict_pts.round() as i32,
                     fw_predict_d_epoch,
                 ),
-                1000.0,
-                Vec2::new(-1900.0, -1900.0),
                 GREEN,
                 fw_orbit_line_fade,
             );
@@ -452,8 +514,6 @@ async fn main() {
                     bw_predict_pts.round() as i32,
                     -bw_predict_d_epoch,
                 ),
-                1000.0,
-                Vec2::new(-1900.0, -1900.0),
                 RED,
                 bw_orbit_line_fade,
             );
@@ -469,7 +529,9 @@ async fn main() {
             Mode::Paused => {}
         }
 
-        draw_state(&mut object_vector, 1000.0, Vec2::new(-1900.0, -1900.0));
+        draw_state(&mut object_vector);
+
+        set_default_camera();
 
         draw_text(
             &format! {"dt: {}", get_frame_time()}.to_string(),
@@ -486,11 +548,11 @@ async fn main() {
             DARKGRAY,
         );
         draw_text(
-            "1000x zoom (1 pixel = 1 mm)",
+            &format! {"{}x zoom", camera_controller.camera.zoom}.to_string(),
             20.0,
             500.0,
             20.0,
-            DARKGRAY
+            DARKGRAY,
         );
 
         egui_macroquad::draw();
