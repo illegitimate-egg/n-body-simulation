@@ -1,5 +1,3 @@
-use std::{any::Any, rc::Rc};
-
 use macroquad::prelude::*;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
@@ -38,8 +36,8 @@ impl CameraController {
     fn new() -> Self {
         Self {
             camera: Camera2D {
-                zoom: vec2(2.0 / screen_width() * 1000.0, -2.0 / screen_height() * 1000.0),
-                target: vec2(2.0, 2.0),
+                zoom: vec2(2.0 / screen_width() * 200.0, -2.0 / screen_height() * 200.0),
+                target: vec2(0.0, 0.0),
                 ..Default::default()
             },
             dragging: false,
@@ -131,76 +129,189 @@ impl Mode {
     }
 }
 
-fn physics_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
-    let vector_state = object_vector.to_owned();
-
-    for object in object_vector.iter_mut().enumerate() {
-        let index = object.0;
-        let object = object.1;
-
-        // Apply forces (and their accelerations)
-        // |F| = m_1 |a|
-        // |F| = G(m_1 m_2) / r^2
-        // r = sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)
-        // We want this in terms of a
-        // |a| = G(m_2) / r^2
-        // |a| = G(m_2) / (m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2
-        // Since the vector a will point towards m_2
-        // Get unit vector pointing towards the second mass
-        // butt (vec[2]) = [(m_1.x - m_2.x)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2), (m_1.y - m_2.y)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)];
-        // Multiply it by the vector a to get the acceleration vector
-        // a = |a| * butt
-        // v = v += a * dt
-
-        let mut a = Vec2::new(0.0, 0.0);
-
-        for object_two in vector_state.iter() {
-            if vector_state[index].position == object_two.position {
+fn compute_acceleration(objects: &[Object]) -> Vec<Vec2> {
+    let n = objects.len();
+    let mut acc = vec![Vec2::ZERO; n];
+    for i in 0..n {
+        for j in 0..n {
+            if i == j {
                 continue;
             }
-
-            let r_squared = (object.position.x as f64 - object_two.position.x as f64).powi(2)
-                + (object.position.y as f64 - object_two.position.y as f64).powi(2);
-
-            let mag_a: f64 =
-                (NEWTONIAN_CONSTANT_OF_GRAVITATION * object_two.mass as f64) / r_squared;
-            a += Vec2::new(
-                -mag_a as f32 * (object.position.x - object_two.position.x)
-                    / r_squared.sqrt() as f32,
-                -mag_a as f32 * (object.position.y - object_two.position.y)
-                    / r_squared.sqrt() as f32,
-            );
+            let r = objects[j].position - objects[i].position;
+            let r2 = r.length_squared();
+            let r3 = r2 * r.length();
+            acc[i] += r * (NEWTONIAN_CONSTANT_OF_GRAVITATION as f32 * objects[j].mass / r3);
         }
-
-        // TODO: Update integrator
-
-        // Apply the acceleration to the velocity
-        object.velocity += a * dt * time_multiplier;
-        // Make velocity velocit
-        object.position += object.velocity * dt * time_multiplier;
     }
+    acc
+}
+
+// TODO: Move to utils.rs ALSO move the critical phsyics stuff to its own thing
+fn pack_state(objects: &[Object]) -> Vec<f32> {
+    let mut state = Vec::with_capacity(objects.len() * 4);
+    for obj in objects {
+        state.push(obj.position.x);
+        state.push(obj.position.y);
+        state.push(obj.velocity.x);
+        state.push(obj.velocity.y);
+    }
+    state
+}
+
+fn unpack_state(state: &[f32], objects: &mut [Object]) {
+    for (i, obj) in objects.iter_mut().enumerate() {
+        let base = i * 4;
+        obj.position.x = state[base];
+        obj.position.y = state[base + 1];
+        obj.velocity.x = state[base + 2];
+        obj.velocity.y = state[base + 3];
+    }
+}
+
+fn derivatives_from_objects(objects: &[Object]) -> Vec<f32> {
+    let n = objects.len();
+    let mut deriv = vec![0.0; n * 4];
+    let acc = compute_acceleration(objects);
+    for i in 0..n {
+        let base = i * 4;
+        // derivative of position = velocity
+        deriv[base] = objects[i].velocity.x;
+        deriv[base + 1] = objects[i].velocity.y;
+        // derivative of velocity = acceleration
+        deriv[base + 2] = acc[i].x;
+        deriv[base + 3] = acc[i].y;
+    }
+    deriv
+}
+
+// Yes blud, I am solving 4th order
+fn rk4_step(objects: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
+    let actual_dt = dt * time_multiplier;
+    let n = objects.len();
+    let mut state = pack_state(objects);
+    let mut temp_state = vec![0.0; state.len()];
+
+    // k1
+    let k1 = derivatives_from_objects(objects);
+
+    // k2
+    for i in 0..state.len() {
+        temp_state[i] = state[i] + 0.5 * actual_dt * k1[i];
+    }
+    let objects_k2: Vec<Object> = (0..n)
+        .map(|i| {
+            let base = i * 4;
+            Object {
+                position: Vec2::new(temp_state[base], temp_state[base + 1]),
+                velocity: Vec2::new(temp_state[base + 2], temp_state[base + 3]),
+                mass: objects[i].mass, // keep original masses
+            }
+        })
+        .collect();
+    let k2 = derivatives_from_objects(&objects_k2);
+
+    // k3
+    for i in 0..state.len() {
+        temp_state[i] = state[i] + 0.5 * actual_dt * k2[i];
+    }
+    let objects_k3: Vec<Object> = (0..n)
+        .map(|i| {
+            let base = i * 4;
+            Object {
+                position: Vec2::new(temp_state[base], temp_state[base + 1]),
+                velocity: Vec2::new(temp_state[base + 2], temp_state[base + 3]),
+                mass: objects[i].mass,
+            }
+        })
+        .collect();
+    let k3 = derivatives_from_objects(&objects_k3);
+
+    // k4
+    for i in 0..state.len() {
+        temp_state[i] = state[i] + actual_dt * k3[i];
+    }
+    let objects_k4: Vec<Object> = (0..n)
+        .map(|i| {
+            let base = i * 4;
+            Object {
+                position: Vec2::new(temp_state[base], temp_state[base + 1]),
+                velocity: Vec2::new(temp_state[base + 2], temp_state[base + 3]),
+                mass: objects[i].mass,
+            }
+        })
+        .collect();
+    let k4 = derivatives_from_objects(&objects_k4);
+
+    // Final update
+    for i in 0..state.len() {
+        state[i] += actual_dt * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]) / 6.0;
+    }
+    unpack_state(&state, objects);
 
     *ut += dt * time_multiplier;
 }
 
+// fn euler_cromer_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
+//     let vector_state = object_vector.to_owned();
+
+//     for object in object_vector.iter_mut().enumerate() {
+//         let index = object.0;
+//         let object = object.1;
+
+//         // Apply forces (and their accelerations)
+//         // |F| = m_1 |a|
+//         // |F| = G(m_1 m_2) / r^2
+//         // r = sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)
+//         // We want this in terms of a
+//         // |a| = G(m_2) / r^2
+//         // |a| = G(m_2) / (m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2
+//         // Since the vector a will point towards m_2
+//         // Get unit vector pointing towards the second mass
+//         // butt (vec[2]) = [(m_1.x - m_2.x)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2), (m_1.y - m_2.y)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)];
+//         // Multiply it by the vector a to get the acceleration vector
+//         // a = |a| * butt
+//         // v = v += a * dt
+
+//         let mut a = Vec2::new(0.0, 0.0);
+
+//         for object_two in vector_state.iter() {
+//             if vector_state[index].position == object_two.position {
+//                 continue;
+//             }
+
+//             let r_squared = (object.position.x as f64 - object_two.position.x as f64).powi(2)
+//                 + (object.position.y as f64 - object_two.position.y as f64).powi(2);
+
+//             let r = r_squared.sqrt();
+
+//             let mag_a: f64 =
+//                 (NEWTONIAN_CONSTANT_OF_GRAVITATION * object_two.mass as f64) / r_squared;
+//             a += Vec2::new(
+//                 -mag_a as f32 * (object.position.x - object_two.position.x) / r as f32,
+//                 -mag_a as f32 * (object.position.y - object_two.position.y) / r as f32,
+//             );
+//         }
+
+//         // TODO: Update integrator
+
+//         // Apply the acceleration to the velocity
+//         object.velocity += a * dt * time_multiplier;
+//         // Make velocity velocit
+//         object.position += object.velocity * dt * time_multiplier;
+//     }
+
+//     *ut += dt * time_multiplier;
+// }
+
 fn draw_state(object_vector: &mut Vec<Object>) {
     for object in object_vector {
         // Draw it
-        draw_circle(
-            object.position.x,
-            object.position.y,
-            5.0/1000.0,
-            BLACK,
-        ); // Draw a thing
+        draw_circle(object.position.x, object.position.y, 5.0 / 1000.0, BLACK); // Draw a thing
     }
 }
 
 // Outer vector is each step, inner vector is each object. Object indexs are constant
-fn draw_prediction(
-    prediction: Vec<Vec<Object>>,
-    color: Color,
-    fade: bool,
-) {
+fn draw_prediction(prediction: Vec<Vec<Object>>, color: Color, fade: bool) {
     let number_of_bodies = prediction[0].len(); // Should be a constant size
     let number_of_timesteps = prediction.len();
 
@@ -217,23 +328,9 @@ fn draw_prediction(
             if fade {
                 let mut fade_color = color;
                 fade_color.a = 1.0 - (point as f32 / number_of_timesteps as f32);
-                draw_line(
-                    x_0,
-                    y_0,
-                    x_1,
-                    y_1,
-                    1.5/1000.0,
-                    fade_color,
-                );
+                draw_line(x_0, y_0, x_1, y_1, 1.5 / 1000.0, fade_color);
             } else {
-                draw_line(
-                    x_0,
-                    y_0,
-                    x_1,
-                    y_1,
-                    1.5/1000.0,
-                    color,
-                );
+                draw_line(x_0, y_0, x_1, y_1, 1.5 / 1000.0, color);
             }
 
             x_0 = x_1;
@@ -255,7 +352,7 @@ fn predict(
     let mut ut: f32 = 0.0;
 
     for _point in 0..predict_pts {
-        physics_step(&mut running_conditions, &mut ut, time_step, 1.0);
+        rk4_step(&mut running_conditions, &mut ut, time_step, 1.0);
 
         prediction.push(running_conditions.clone());
     }
@@ -268,17 +365,28 @@ async fn main() {
     let mut object_vector: Vec<Object> = vec![];
     let mut ut: f32 = 0.0;
 
+    // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
+    // Since G scales so quickly the masses either have to be enormous or the distances scaled
+
     // Create a mass
     object_vector.push(Object {
-        velocity: Vec2::new(0.0, 0.02),
-        ..Default::default()
+        position: Vec2::new(0.9700436, -0.24308753),
+        velocity: Vec2::new(0.466203685, 0.43236573),
+        mass: 1.498e10,
     });
 
     // Create another mass
     object_vector.push(Object {
-        position: Vec2::new(2.1, 2.0),
-        velocity: Vec2::new(0.0, 0.0),
-        mass: 1000000.0,
+        position: -object_vector[0].position,
+        velocity: object_vector[0].velocity,
+        mass: object_vector[0].mass,
+    });
+
+    // Guess what
+    object_vector.push(Object {
+        position: Vec2::new(0.0, 0.0),
+        velocity: -2.0 * object_vector[0].velocity,
+        mass: object_vector[0].mass,
     });
 
     let mut mode = Mode::Paused;
@@ -414,7 +522,11 @@ async fn main() {
                             object.position.y,
                             5.0 / 1000.0, // 1000 is the zoom factor
                         );
-                        if radius.contains(&camera_controller.camera.screen_to_world(mouse_position().into())) {
+                        if radius.contains(
+                            &camera_controller
+                                .camera
+                                .screen_to_world(mouse_position().into()),
+                        ) {
                             found_index = Some(i);
                             break;
                         }
@@ -427,7 +539,9 @@ async fn main() {
                 }
                 MouseStatus::Creating => {
                     object_vector.push(Object {
-                        position: camera_controller.camera.screen_to_world(mouse_position().into()),
+                        position: camera_controller
+                            .camera
+                            .screen_to_world(mouse_position().into()),
                         velocity: Vec2::new(0.0, 0.0),
                         mass: 1000000.0,
                     });
@@ -440,11 +554,13 @@ async fn main() {
             if mouse_state == MouseStatus::CreatingStart {
                 mouse_state = MouseStatus::Creating;
             } else if mouse_state == MouseStatus::Creating {
-                let world_mouse = camera_controller.camera.screen_to_world(mouse_position().into());
+                let world_mouse = camera_controller
+                    .camera
+                    .screen_to_world(mouse_position().into());
                 draw_circle(
                     world_mouse.x,
                     world_mouse.y,
-                    5.0/1000.0,
+                    5.0 / 1000.0,
                     Color {
                         r: 0.0,
                         g: 0.0,
@@ -461,7 +577,9 @@ async fn main() {
             Mode::Simulating => {}
             Mode::Paused => {
                 if let MouseStatus::Dragging(index) = mouse_state {
-                    object_vector[index].position = camera_controller.camera.screen_to_world(mouse_position().into());
+                    object_vector[index].position = camera_controller
+                        .camera
+                        .screen_to_world(mouse_position().into());
                 }
             }
         }
@@ -470,12 +588,12 @@ async fn main() {
         if is_mouse_button_down(MouseButton::Right) {
             let mut found_index = None;
             for (i, object) in object_vector.iter_mut().enumerate() {
-                let radius = Circle::new(
-                    object.position.x,
-                    object.position.y,
-                    5.0 / 1000.0,
-                );
-                if radius.contains(&camera_controller.camera.screen_to_world(mouse_position().into())) {
+                let radius = Circle::new(object.position.x, object.position.y, 5.0 / 1000.0);
+                if radius.contains(
+                    &camera_controller
+                        .camera
+                        .screen_to_world(mouse_position().into()),
+                ) {
                     found_index = Some(i);
                     break;
                 } else {
@@ -520,7 +638,7 @@ async fn main() {
         }
 
         match mode {
-            Mode::Simulating => physics_step(
+            Mode::Simulating => rk4_step(
                 &mut object_vector,
                 &mut ut,
                 get_frame_time(),
