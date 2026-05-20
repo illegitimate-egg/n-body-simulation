@@ -12,9 +12,9 @@ struct Object {
 impl Default for Object {
     fn default() -> Self {
         Self {
-            position: Vec2::new(2.0, 2.0),
-            velocity: Vec2::new(0.0, 0.0),
-            mass: 1.0, // 1 blistering kilogram
+            position: Vec2::ZERO,
+            velocity: Vec2::ZERO,
+            mass: 1.0e9, // 1 billion blistering kilograms (1 Megaton)
         }
     }
 }
@@ -95,7 +95,8 @@ impl CameraController {
 
             // Clamp zoom
             self.camera.zoom.x = self.camera.zoom.x.clamp(0.0005, 10.0);
-            self.camera.zoom.y = self.camera.zoom.y.clamp(-10.0, -0.0005);
+
+            self.camera.zoom.y = self.camera.zoom.x * -(screen_width() / screen_height()); // Recompute y
 
             // World position AFTER zoom
             let world_after = self.camera.screen_to_world(mouse_screen);
@@ -146,6 +147,7 @@ fn compute_acceleration(objects: &[Object]) -> Vec<Vec2> {
     acc
 }
 
+// TODO: Stop crash that sometimes happens when deleting an object
 // TODO: Move to utils.rs ALSO move the critical phsyics stuff to its own thing
 fn pack_state(objects: &[Object]) -> Vec<f32> {
     let mut state = Vec::with_capacity(objects.len() * 4);
@@ -248,7 +250,7 @@ fn rk4_step(objects: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32)
     }
     unpack_state(&state, objects);
 
-    *ut += dt * time_multiplier;
+    *ut += actual_dt;
 }
 
 // fn euler_cromer_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
@@ -310,31 +312,34 @@ fn draw_state(object_vector: &mut Vec<Object>) {
     }
 }
 
-// Outer vector is each step, inner vector is each object. Object indexs are constant
-fn draw_prediction(prediction: Vec<Vec<Object>>, color: Color, fade: bool) {
-    let number_of_bodies = prediction[0].len(); // Should be a constant size
-    let number_of_timesteps = prediction.len();
+fn draw_prediction(prediction: &[Vec<Object>], color: Color, fade: bool) {
+    if prediction.is_empty() {
+        return;
+    }
+    let num_objects = prediction[0].len();
+    let num_steps = prediction.len();
 
-    // Important this is an index and not an object
-    for object in 0..number_of_bodies {
-        let mut x_0 = prediction[0][object].position.x;
-        let mut y_0 = prediction[0][object].position.y;
+    for obj_idx in 0..num_objects {
+        let mut prev_pos = prediction[0][obj_idx].position;
 
-        // First step is explicit case since there is insufficient data
-        for point in 1..number_of_timesteps {
-            let x_1 = prediction[point][object].position.x;
-            let y_1 = prediction[point][object].position.y;
-
-            if fade {
-                let mut fade_color = color;
-                fade_color.a = 1.0 - (point as f32 / number_of_timesteps as f32);
-                draw_line(x_0, y_0, x_1, y_1, 1.5 / 1000.0, fade_color);
+        for (step, objects) in prediction.iter().enumerate().skip(1) {
+            let cur_pos = objects[obj_idx].position;
+            let line_color = if fade {
+                let mut c = color;
+                c.a = 1.0 - (step as f32 / num_steps as f32);
+                c
             } else {
-                draw_line(x_0, y_0, x_1, y_1, 1.5 / 1000.0, color);
-            }
-
-            x_0 = x_1;
-            y_0 = y_1;
+                color
+            };
+            draw_line(
+                prev_pos.x,
+                prev_pos.y,
+                cur_pos.x,
+                cur_pos.y,
+                1.5 / 1000.0,
+                line_color,
+            );
+            prev_pos = cur_pos;
         }
     }
 }
@@ -344,16 +349,13 @@ fn predict(
     predict_pts: i32,
     predict_d_epoch: f32,
 ) -> Vec<Vec<Object>> {
-    let mut prediction: Vec<Vec<Object>> = vec![];
-
+    let mut prediction: Vec<Vec<Object>> = Vec::with_capacity(predict_pts as usize);
     let time_step = predict_d_epoch / predict_pts as f32;
-
     let mut running_conditions = initial_conditions.to_owned();
     let mut ut: f32 = 0.0;
 
-    for _point in 0..predict_pts {
+    for _ in 0..predict_pts {
         rk4_step(&mut running_conditions, &mut ut, time_step, 1.0);
-
         prediction.push(running_conditions.clone());
     }
 
@@ -368,10 +370,11 @@ async fn main() {
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
     // Since G scales so quickly the masses either have to be enormous or the distances scaled
 
+    // Three body problem solution (Requires rk4 for sufficient quality)
     // Create a mass
     object_vector.push(Object {
         position: Vec2::new(0.9700436, -0.24308753),
-        velocity: Vec2::new(0.466203685, 0.43236573),
+        velocity: Vec2::new(0.4662037, 0.43236573),
         mass: 1.498e10,
     });
 
@@ -457,14 +460,17 @@ async fn main() {
                     });
                 });
 
-            if let Some(ctx_now) = ctx_menu {
+            let mut remove_object = false;
+            let mut removed_object_index = 0;
+            if let Some(ctx_now) = ctx_menu.as_mut()
+            {
                 let ctx_menu_window = egui::Window::new(format!("Mass {}", ctx_now.object))
                     .fixed_pos(ctx_now.position)
                     .collapsible(false)
                     .show(egui_ctx, |ui| {
                         if ui.button("Delete").clicked() {
-                            object_vector.remove(ctx_now.object);
-                            ctx_menu = None;
+                            removed_object_index = ctx_now.object;
+                            remove_object = true;
                         }
                         let mass_label = ui.label("Object mass / kg");
                         ui.add(egui::DragValue::new(
@@ -493,11 +499,16 @@ async fn main() {
                         });
                     });
 
-                ctx_menu = Some(CTXMenu {
-                    object: ctx_now.object,
-                    position: ctx_now.position,
-                    interaction_rect: ctx_menu_window.unwrap().response.interact_rect,
-                });
+                ctx_now.interaction_rect = ctx_menu_window.unwrap().response.interact_rect;
+                // ctx_menu = Some(CTXMenu {
+                //     object: ctx_now.object,
+                //     position: ctx_now.position,
+                //     interaction_rect: ctx_menu_window.unwrap().response.interact_rect,
+                // });
+            }
+            if remove_object {
+                object_vector.remove(removed_object_index);
+                ctx_menu = None;
             }
         });
 
@@ -615,7 +626,7 @@ async fn main() {
 
         if predict_future {
             draw_prediction(
-                predict(
+                &predict(
                     &object_vector,
                     fw_predict_pts.round() as i32,
                     fw_predict_d_epoch,
@@ -627,7 +638,7 @@ async fn main() {
 
         if predict_past {
             draw_prediction(
-                predict(
+                &predict(
                     &object_vector,
                     bw_predict_pts.round() as i32,
                     -bw_predict_d_epoch,
