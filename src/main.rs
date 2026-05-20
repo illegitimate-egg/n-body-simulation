@@ -43,7 +43,7 @@ impl Default for Object {
         Self {
             position: Vec2::ZERO,
             velocity: Vec2::ZERO,
-            mass: 1.0e9, // 1 billion blistering kilograms (1 Megaton)
+            mass: 1.0e10, // 1 billion blistering kilograms (1 Megaton)
         }
     }
 }
