@@ -126,7 +126,7 @@ pub fn draw_prediction(
             path_data[step] = prediction[step * num_objects + obj_idx];
         }
 
-        draw_path(&path_data, 1.5 / 1000.0, &colors);
+        draw_path(&path_data, 3.0 / 1000.0, &colors);
     }
 }
 
@@ -150,8 +150,8 @@ fn draw_path(points: &[Vec2], thickness: f32, colours: &[Color]) {
         let dy = p2.y - p1.y;
 
         // Find normal
-        let nx = -dx;
-        let ny = dy;
+        let nx = -dy;
+        let ny = dx;
 
         // Normalize to half thickness
         let tlen = (nx * nx + ny * ny).sqrt() / (thickness * 0.5);
