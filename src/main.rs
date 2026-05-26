@@ -1,16 +1,15 @@
 use macroquad::prelude::*;
 
 use crate::{
-    phys::RK4Integrator,
+    phys::Y4Integrator,
     ui::{CTXMenu, CameraController},
 };
 
 mod phys;
 mod ui;
-mod utils;
 
 struct State {
-    objects: Vec<Object>,
+    objects: Objects,
     ut: f32,
 
     mode: Mode,
@@ -38,24 +37,43 @@ struct State {
 
     camera_controller: CameraController,
 
-    rk4_integrator: RK4Integrator,
+    y4_integrator: Y4Integrator,
 }
 
-// All masses are singularities
-#[derive(Debug, Clone, Copy)]
-struct Object {
-    position: Vec2, // ms^-1
-    velocity: Vec2, // ms^-1
-    mass: f32,      // kg
+#[derive(Debug, Default, Clone)]
+struct Objects {
+    position_x: Vec<f32>,
+    position_y: Vec<f32>,
+
+    velocity_x: Vec<f32>,
+    velocity_y: Vec<f32>,
+
+    mass: Vec<f32>,
 }
 
-impl Default for Object {
-    fn default() -> Self {
-        Self {
-            position: Vec2::ZERO,
-            velocity: Vec2::ZERO,
-            mass: 1.0e10, // 1 billion blistering kilograms (1 Megaton)
-        }
+impl Objects {
+    pub fn len(&self) -> usize {
+        self.mass.len()
+    }
+
+    pub fn insert_object(&mut self, position: Vec2, velocity: Vec2, mass: f32) {
+        self.position_x.push(position.x);
+        self.position_y.push(position.y);
+
+        self.velocity_x.push(velocity.x);
+        self.velocity_y.push(velocity.y);
+
+        self.mass.push(mass);
+    }
+
+    pub fn remove_object(&mut self, idx: usize) {
+        self.position_x.remove(idx);
+        self.position_y.remove(idx);
+
+        self.velocity_x.remove(idx);
+        self.velocity_y.remove(idx);
+
+        self.mass.remove(idx);
     }
 }
 
@@ -85,7 +103,7 @@ impl Mode {
 #[macroquad::main("n-body")]
 async fn main() {
     let mut state = State {
-        objects: vec![],
+        objects: Objects::default(),
         ut: 0.0,
 
         mode: Mode::Paused,
@@ -113,33 +131,33 @@ async fn main() {
 
         camera_controller: CameraController::new(),
 
-        rk4_integrator: RK4Integrator::new(),
+        y4_integrator: Y4Integrator::default(),
     };
 
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
     // Since G scales so quickly the masses either have to be enormous or the distances scaled
 
-    // Three body problem solution (Requires rk4 for sufficient quality)
+    // Three body problem solution (Requires ~~rk4~~ for sufficient quality)
     // Create a mass
-    state.objects.push(Object {
-        position: Vec2::new(0.9700436, -0.24308753),
-        velocity: Vec2::new(0.4662037, 0.43236573),
-        mass: 1.498e10,
-    });
+    state.objects.insert_object(
+        Vec2::new(0.9700436, -0.24308753),
+        Vec2::new(0.4662037, 0.43236573),
+        1.498e10,
+    );
 
     // Create another mass
-    state.objects.push(Object {
-        position: -state.objects[0].position,
-        velocity: state.objects[0].velocity,
-        mass: state.objects[0].mass,
-    });
+    state.objects.insert_object(
+        -Vec2::new(state.objects.position_x[0], state.objects.position_y[0]),
+        Vec2::new(state.objects.velocity_x[0], state.objects.velocity_y[0]),
+        state.objects.mass[0],
+    );
 
     // Guess what
-    state.objects.push(Object {
-        position: Vec2::new(0.0, 0.0),
-        velocity: -2.0 * state.objects[0].velocity,
-        mass: state.objects[0].mass,
-    });
+    state.objects.insert_object(
+        Vec2::new(0.0, 0.0),
+        -2.0 * Vec2::new(state.objects.velocity_x[0], state.objects.velocity_y[0]),
+        state.objects.mass[0],
+    );
 
     loop {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
@@ -150,16 +168,16 @@ async fn main() {
         ui::draw(&mut state);
 
         match state.mode {
-            Mode::Simulating => state.rk4_integrator.step(
-                &mut state.objects,
-                &mut state.ut,
-                get_frame_time(),
-                state.time_multiplier,
-            ),
+            Mode::Simulating => {
+                state
+                    .y4_integrator
+                    .step(&mut state.objects, get_frame_time() * state.time_multiplier);
+                state.ut += get_frame_time() * state.time_multiplier
+            }
             Mode::Paused => {}
         }
 
-        ui::draw_objects(&mut state.objects);
+        ui::draw_objects(&state.objects);
 
         set_default_camera(); // Switch to screenspace rendering
 

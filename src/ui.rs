@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-use crate::{Mode, MouseStatus, Object, State, phys::predict};
+use crate::{Mode, MouseStatus, Objects, State, phys::predict};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CTXMenu {
@@ -90,14 +90,20 @@ impl CameraController {
     }
 }
 
-pub fn draw_objects(objects: &mut Vec<Object>) {
-    for object in objects {
+pub fn draw_objects(objects: &Objects) {
+    for i in 0..objects.len() {
         // Draw it
-        draw_circle(object.position.x, object.position.y, 5.0 / 1000.0, BLACK); // Draw a thing
+        draw_circle(objects.position_x[i], objects.position_y[i], 5.0 / 1000.0, BLACK); // Draw a thing
     }
 }
 
-pub fn draw_prediction(prediction: &[Vec2], num_objects: usize, num_steps: usize, color: Color, fade: bool) {
+pub fn draw_prediction(
+    prediction: &[Vec2],
+    num_objects: usize,
+    num_steps: usize,
+    color: Color,
+    fade: bool,
+) {
     if prediction.is_empty() {
         return;
     }
@@ -189,11 +195,12 @@ pub fn draw(state: &mut State) {
                     if ui.button("Delete").clicked() {
                         removed_object_index = ctx_now.object;
                         remove_object = true;
+                        state.prediction_dirty = true;
                     }
                     let mass_label = ui.label("Object mass / kg");
                     if ui
                         .add(egui::DragValue::new(
-                            &mut state.objects[ctx_now.object].mass,
+                            &mut state.objects.mass[ctx_now.object],
                         ))
                         .labelled_by(mass_label.id)
                         .changed()
@@ -205,7 +212,7 @@ pub fn draw(state: &mut State) {
                     ui.columns(2, |colui| {
                         if colui[0]
                             .add(egui::DragValue::new(
-                                &mut state.objects[ctx_now.object].position.x,
+                                &mut state.objects.position_x[ctx_now.object],
                             ))
                             .changed()
                         {
@@ -213,7 +220,7 @@ pub fn draw(state: &mut State) {
                         }
                         if colui[1]
                             .add(egui::DragValue::new(
-                                &mut state.objects[ctx_now.object].position.y,
+                                &mut state.objects.position_y[ctx_now.object],
                             ))
                             .changed()
                         {
@@ -225,7 +232,7 @@ pub fn draw(state: &mut State) {
                     ui.columns(2, |colui| {
                         if colui[0]
                             .add(egui::DragValue::new(
-                                &mut state.objects[ctx_now.object].velocity.x,
+                                &mut state.objects.velocity_x[ctx_now.object],
                             ))
                             .changed()
                         {
@@ -233,7 +240,7 @@ pub fn draw(state: &mut State) {
                         };
                         if colui[1]
                             .add(egui::DragValue::new(
-                                &mut state.objects[ctx_now.object].velocity.y,
+                                &mut state.objects.velocity_y[ctx_now.object],
                             ))
                             .changed()
                         {
@@ -250,7 +257,7 @@ pub fn draw(state: &mut State) {
             // });
         }
         if remove_object {
-            state.objects.remove(removed_object_index);
+            state.objects.remove_object(removed_object_index);
             state.ctx_menu = None;
         }
     });
@@ -270,10 +277,10 @@ pub fn draw(state: &mut State) {
                 }
 
                 let mut found_index = None;
-                for (i, object) in state.objects.iter_mut().enumerate() {
+                for i in 0..state.objects.len() {
                     let radius = Circle::new(
-                        object.position.x,
-                        object.position.y,
+                        state.objects.position_x[i],
+                        state.objects.position_y[i],
                         5.0 / 1000.0, // 1000 is the zoom factor
                     );
                     if radius.contains(
@@ -293,16 +300,17 @@ pub fn draw(state: &mut State) {
                 };
             }
             MouseStatus::Creating => {
-                state.objects.push(Object {
-                    position: state
+                let position = state
                         .camera_controller
                         .camera
-                        .screen_to_world(mouse_position().into()),
-                    velocity: Vec2::new(0.0, 0.0),
-                    mass: 1000000.0,
-                });
+                        .screen_to_world(mouse_position().into());
+                state.objects.insert_object(position,
+                    Vec2::new(0.0, 0.0),
+                    1000000.0,
+                );
 
                 state.mouse_state = MouseStatus::Released;
+                state.prediction_dirty = true;
             }
             _ => {}
         }
@@ -334,20 +342,23 @@ pub fn draw(state: &mut State) {
         Mode::Simulating => {}
         Mode::Paused => {
             if let MouseStatus::Dragging(index) = state.mouse_state {
-                state.objects[index].position = state
+                let position = state
                     .camera_controller
                     .camera
                     .screen_to_world(mouse_position().into());
+                state.objects.position_x[index] = position.x;
+                state.objects.position_y[index] = position.y;
                 state.prediction_dirty = true;
             }
         }
     }
 
     // Open ctx menu
+    // TODO: Performance Gainz by evaluating circle around the mouse
     if is_mouse_button_down(MouseButton::Right) {
         let mut found_index = None;
-        for (i, object) in state.objects.iter_mut().enumerate() {
-            let radius = Circle::new(object.position.x, object.position.y, 5.0 / 1000.0);
+        for i in 0..state.objects.len() {
+            let radius = Circle::new(state.objects.position_x[i], state.objects.position_y[i], 5.0 / 1000.0);
             if radius.contains(
                 &state
                     .camera_controller
@@ -377,8 +388,8 @@ pub fn draw(state: &mut State) {
     if state.prediction_dirty {
         if state.predict_future {
             state.future_prediction = Some(predict(
-                &mut state.rk4_integrator,
-                &state.objects,
+                &mut state.y4_integrator,
+                state.objects.clone(),
                 state.fw_predict_pts.round() as i32,
                 state.fw_predict_d_epoch,
             ));
@@ -387,8 +398,8 @@ pub fn draw(state: &mut State) {
         }
         if state.predict_past {
             state.past_prediction = Some(predict(
-                &mut state.rk4_integrator,
-                &state.objects,
+                &mut state.y4_integrator,
+                state.objects.clone(),
                 state.bw_predict_pts.round() as i32,
                 -state.bw_predict_d_epoch,
             ));
@@ -399,9 +410,21 @@ pub fn draw(state: &mut State) {
     }
 
     if let Some(prediction) = &state.future_prediction {
-        draw_prediction(prediction, state.objects.len(), state.fw_predict_pts as usize, GREEN, state.fw_orbit_line_fade);
+        draw_prediction(
+            prediction,
+            state.objects.len(),
+            state.fw_predict_pts as usize,
+            GREEN,
+            state.fw_orbit_line_fade,
+        );
     }
     if let Some(prediction) = &state.past_prediction {
-        draw_prediction(prediction, state.objects.len(), state.bw_predict_pts as usize, RED, state.bw_orbit_line_fade);
+        draw_prediction(
+            prediction,
+            state.objects.len(),
+            state.bw_predict_pts as usize,
+            RED,
+            state.bw_orbit_line_fade,
+        );
     }
 }
