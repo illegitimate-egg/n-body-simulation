@@ -1,6 +1,6 @@
 #![feature(portable_simd)]
 
-use macroquad::prelude::*;
+use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
     phys::Y4Integrator,
@@ -151,7 +151,11 @@ impl Mode {
     }
 }
 
-#[macroquad::main("n-body")]
+fn window_conf() -> Conf {
+    Conf { miniquad_conf: miniquad::conf::Conf::default(), update_on: None, default_filter_mode: FilterMode::Linear, draw_call_vertex_capacity: 70_000, draw_call_index_capacity: 70_000 }
+}
+
+#[macroquad::main(window_conf)]
 async fn main() {
     let mut state = State {
         objects: Objects::new(3), // 3 body problem

@@ -1,2 +1,7 @@
-[build]
-rustflags = ["-C", "target-cpu=native"]
+# [target.wasm32-unknown-unknown]
+# # I just need something in here to stop build from ending the world
+# rustflags = ["-v"]
+
+# [build]
+# rustflags = ["-C", "target-cpu=native"]
+

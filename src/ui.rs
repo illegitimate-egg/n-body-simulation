@@ -112,30 +112,75 @@ pub fn draw_prediction(
     if prediction.is_empty() {
         return;
     }
-    for obj_idx in 0..num_objects {
-        let mut prev_pos = prediction[obj_idx]; // This is optimized, it's looking for the first position of the target body. Because of how the vector is packed that happens to be the same as the index of the current object
-
+    
+    let mut colors: Box<[Color]> = vec![color; num_steps].into_boxed_slice();
+    if fade {
         for step in 1..num_steps {
-            let cur_pos = prediction[step * num_objects + obj_idx];
-            let line_color = if fade {
-                let mut c = color;
-                c.a = 1.0 - (step as f32 / num_steps as f32);
-                c
-            } else {
-                color
-            };
-            // This is the bottleneck, lol
-            draw_line(
-                prev_pos.x,
-                prev_pos.y,
-                cur_pos.x,
-                cur_pos.y,
-                1.5 / 1000.0,
-                line_color,
-            );
-            prev_pos = cur_pos;
+            colors[step].a = 1.0 - (step as f32 / num_steps as f32);
         }
     }
+
+    let mut path_data: Box<[Vec2]> = vec![Vec2::ZERO; num_steps].into_boxed_slice(); 
+    for obj_idx in 0..num_objects {
+        for step in 0..num_steps {
+            path_data[step] = prediction[step * num_objects + obj_idx];
+        }
+
+        draw_path(&path_data, 1.5 / 1000.0, &colors);
+    }
+}
+
+// Based on macroquad source
+fn draw_path(points: &[Vec2], thickness: f32, colours: &[Color]) {
+    if points.len() < 2 {
+        return;
+    }
+    
+    // GL is intrinsically unsafe
+    let ctx = unsafe { get_internal_gl().quad_gl };
+
+    let mut vertices = Vec::new();
+    let mut indices: Vec<u16> = Vec::new();
+
+    for (idx, window) in points.windows(2).enumerate() {
+        let p1 = &window[0];
+        let p2 = &window[1];
+
+        let dx = p2.x - p1.x;
+        let dy = p2.y - p1.y;
+
+        // Find normal
+        let nx = -dx;
+        let ny = dy;
+
+        // Normalize to half thickness
+        let tlen = (nx * nx + ny * ny).sqrt() / (thickness * 0.5);
+        if tlen < f32::EPSILON {
+            continue; // Degenerate little boy
+        }
+        let tx = nx / tlen;
+        let ty = ny / tlen;
+
+        let base = vertices.len() as u32;
+
+        vertices.push(Vertex::new(p1.x + tx, p1.y + ty, 0., 0., 0., colours[idx]));
+        vertices.push(Vertex::new(p1.x - tx, p1.y - ty, 0., 0., 0., colours[idx]));
+        vertices.push(Vertex::new(p2.x + tx, p2.y + ty, 0., 0., 0., colours[idx + 1]));
+        vertices.push(Vertex::new(p2.x - tx, p2.y - ty, 0., 0., 0., colours[idx + 1]));
+
+        indices.extend_from_slice(&[
+            base.try_into().unwrap(), (base + 1).try_into().unwrap(), (base + 2).try_into().unwrap(),
+            (base + 2).try_into().unwrap(), (base + 1).try_into().unwrap(), (base + 3).try_into().unwrap(),
+        ]);
+    }
+    
+    if vertices.is_empty() {
+        return;
+    }
+
+    ctx.texture(None);
+    ctx.draw_mode(DrawMode::Triangles);
+    ctx.geometry(&vertices, &indices);
 }
 
 pub fn draw(state: &mut State) {
