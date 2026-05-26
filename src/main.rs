@@ -3,7 +3,7 @@
 use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
-    phys::Y4Integrator,
+    phys::{Predictor, Y4Integrator},
     ui::{CTXMenu, CameraController},
 };
 
@@ -18,18 +18,16 @@ struct State {
     time_multiplier: f32,
 
     predict_future: bool,
-    fw_predict_pts: f32,
     fw_predict_d_epoch: f32,
     fw_orbit_line_fade: bool,
 
-    future_prediction: Option<Vec<Vec2>>,
+    future_predictor: Option<Predictor>,
 
     predict_past: bool,
-    bw_predict_pts: f32,
     bw_predict_d_epoch: f32,
     bw_orbit_line_fade: bool,
 
-    past_prediction: Option<Vec<Vec2>>,
+    past_predictor: Option<Predictor>,
 
     prediction_dirty: bool,
 
@@ -40,6 +38,8 @@ struct State {
     camera_controller: CameraController,
 
     y4_integrator: Y4Integrator,
+    physics_accumulator: f32,
+    fixed_dt: f32,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -112,18 +112,18 @@ impl Objects {
             shrunk_mass[i] = self.mass[i];
         }
 
-        for i in idx + 1..self.len() - 1 {
+        for i in idx + 1..self.len() {
             shrunk_position_x[i - 1] = self.position_x[i];
             shrunk_position_y[i - 1] = self.position_y[i];
             shrunk_velocity_x[i - 1] = self.velocity_x[i];
             shrunk_velocity_y[i - 1] = self.velocity_y[i];
-            shrunk_mass[i] = self.mass[i - 1];
+            shrunk_mass[i - 1] = self.mass[i];
         }
 
         self.position_x = shrunk_position_x;
         self.position_y = shrunk_position_y;
         self.velocity_x = shrunk_velocity_x;
-        self.velocity_x = shrunk_velocity_y;
+        self.velocity_y = shrunk_velocity_y;
         self.mass = shrunk_mass;
     }
 }
@@ -152,7 +152,13 @@ impl Mode {
 }
 
 fn window_conf() -> Conf {
-    Conf { miniquad_conf: miniquad::conf::Conf::default(), update_on: None, default_filter_mode: FilterMode::Linear, draw_call_vertex_capacity: 70_000, draw_call_index_capacity: 70_000 }
+    Conf {
+        miniquad_conf: miniquad::conf::Conf::default(),
+        update_on: None,
+        default_filter_mode: FilterMode::Linear,
+        draw_call_vertex_capacity: 70_000,
+        draw_call_index_capacity: 70_000,
+    }
 }
 
 #[macroquad::main(window_conf)]
@@ -165,18 +171,14 @@ async fn main() {
         time_multiplier: 1.0,
 
         predict_future: true,
-        fw_predict_pts: 1000.0,
         fw_predict_d_epoch: 20.0,
         fw_orbit_line_fade: false,
-
-        future_prediction: None,
+        future_predictor: None,
 
         predict_past: false,
-        bw_predict_pts: 1000.0,
         bw_predict_d_epoch: 20.0,
         bw_orbit_line_fade: true,
-
-        past_prediction: None,
+        past_predictor: None,
 
         prediction_dirty: true,
 
@@ -187,6 +189,8 @@ async fn main() {
         camera_controller: CameraController::new(),
 
         y4_integrator: Y4Integrator::new(3),
+        physics_accumulator: 0.0,
+        fixed_dt: 240.0f32.recip(),
     };
 
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
@@ -225,11 +229,31 @@ async fn main() {
 
         match state.mode {
             Mode::Simulating => {
-                state
-                    .y4_integrator
-                    .step(&mut state.objects, get_frame_time() * state.time_multiplier);
-                state.ut += get_frame_time() * state.time_multiplier
+                let frame_dt = get_frame_time();
+
+                state.physics_accumulator += frame_dt * state.time_multiplier.abs();
+
+                let signed_dt = state.fixed_dt * state.time_multiplier.signum();
+
+                // If we're really far behind on physics, give on going realtime and just lag for a while
+                state.physics_accumulator = state.physics_accumulator.min(0.25);
+
+                while state.physics_accumulator >= state.fixed_dt {
+                    state.y4_integrator.step(&mut state.objects, signed_dt);
+
+                    if let Some(pred) = state.future_predictor.as_mut() {
+                        pred.advance(&mut state.y4_integrator, signed_dt, state.objects.len());
+                    }
+                    if let Some(pred) = state.past_predictor.as_mut() {
+                        pred.advance(&mut state.y4_integrator, -signed_dt, state.objects.len());
+                    }
+
+                    state.ut += signed_dt;
+
+                    state.physics_accumulator -= state.fixed_dt;
+                }
             }
+
             Mode::Paused => {}
         }
 
@@ -251,13 +275,7 @@ async fn main() {
             30.0,
             DARKGRAY,
         );
-        draw_text(
-            format! {"ut: {}", state.ut},
-            20.0,
-            50.0,
-            30.0,
-            DARKGRAY,
-        );
+        draw_text(format! {"ut: {}", state.ut}, 20.0, 50.0, 30.0, DARKGRAY);
         draw_text(
             format! {"{}x zoom", state.camera_controller.camera.zoom},
             20.0,

@@ -1,6 +1,11 @@
+use std::collections::VecDeque;
+
 use macroquad::prelude::*;
 
-use crate::{Mode, MouseStatus, Objects, State, phys::predict};
+use crate::{
+    Mode, MouseStatus, Objects, State,
+    phys::{PredictionDirection, Predictor},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CTXMenu {
@@ -102,8 +107,9 @@ pub fn draw_objects(objects: &Objects) {
     }
 }
 
+// TODO: REUSE BUFFERS
 pub fn draw_prediction(
-    prediction: &[Vec2],
+    prediction: &VecDeque<Vec2>,
     num_objects: usize,
     num_steps: usize,
     color: Color,
@@ -112,7 +118,7 @@ pub fn draw_prediction(
     if prediction.is_empty() {
         return;
     }
-    
+
     let mut colors: Box<[Color]> = vec![color; num_steps].into_boxed_slice();
     if fade {
         for step in 1..num_steps {
@@ -120,7 +126,7 @@ pub fn draw_prediction(
         }
     }
 
-    let mut path_data: Box<[Vec2]> = vec![Vec2::ZERO; num_steps].into_boxed_slice(); 
+    let mut path_data: Box<[Vec2]> = vec![Vec2::ZERO; num_steps].into_boxed_slice();
     for obj_idx in 0..num_objects {
         for step in 0..num_steps {
             path_data[step] = prediction[step * num_objects + obj_idx];
@@ -135,7 +141,7 @@ fn draw_path(points: &[Vec2], thickness: f32, colours: &[Color]) {
     if points.len() < 2 {
         return;
     }
-    
+
     // GL is intrinsically unsafe
     let ctx = unsafe { get_internal_gl().quad_gl };
 
@@ -165,15 +171,33 @@ fn draw_path(points: &[Vec2], thickness: f32, colours: &[Color]) {
 
         vertices.push(Vertex::new(p1.x + tx, p1.y + ty, 0., 0., 0., colours[idx]));
         vertices.push(Vertex::new(p1.x - tx, p1.y - ty, 0., 0., 0., colours[idx]));
-        vertices.push(Vertex::new(p2.x + tx, p2.y + ty, 0., 0., 0., colours[idx + 1]));
-        vertices.push(Vertex::new(p2.x - tx, p2.y - ty, 0., 0., 0., colours[idx + 1]));
+        vertices.push(Vertex::new(
+            p2.x + tx,
+            p2.y + ty,
+            0.,
+            0.,
+            0.,
+            colours[idx + 1],
+        ));
+        vertices.push(Vertex::new(
+            p2.x - tx,
+            p2.y - ty,
+            0.,
+            0.,
+            0.,
+            colours[idx + 1],
+        ));
 
         indices.extend_from_slice(&[
-            base.try_into().unwrap(), (base + 1).try_into().unwrap(), (base + 2).try_into().unwrap(),
-            (base + 2).try_into().unwrap(), (base + 1).try_into().unwrap(), (base + 3).try_into().unwrap(),
+            base.try_into().unwrap(),
+            (base + 1).try_into().unwrap(),
+            (base + 2).try_into().unwrap(),
+            (base + 2).try_into().unwrap(),
+            (base + 1).try_into().unwrap(),
+            (base + 3).try_into().unwrap(),
         ]);
     }
-    
+
     if vertices.is_empty() {
         return;
     }
@@ -211,10 +235,6 @@ pub fn draw(state: &mut State) {
                         state.prediction_dirty = true;
                     }
                     ui.add_enabled_ui(state.predict_future, |fwui| {
-                        let fw_pts_label = fwui.label("FW Simulation points");
-                        if fwui.add(egui::Slider::new(&mut state.fw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(fw_pts_label.id).changed() {
-                            state.prediction_dirty = true;
-                        }
                         let fw_epoch_label = fwui.label("Max Δepoch");
                         if fwui.add(egui::DragValue::new(&mut state.fw_predict_d_epoch)).labelled_by(fw_epoch_label.id).changed() {
                             state.prediction_dirty = true;
@@ -227,16 +247,15 @@ pub fn draw(state: &mut State) {
                         state.prediction_dirty = true;
                     }
                     ui.add_enabled_ui(state.predict_past, |bwui| {
-                        let bw_pts_label = bwui.label("BW Simulation points");
-                        if bwui.add(egui::Slider::new(&mut state.bw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(bw_pts_label.id).changed() {
-                            state.prediction_dirty = true;
-                        }
                         let bw_epoch_label = bwui.label("Max Δepoch");
                         if bwui.add(egui::DragValue::new(&mut state.bw_predict_d_epoch)).labelled_by(bw_epoch_label.id).changed() {
                             state.prediction_dirty = true;
                         }
                         bwui.add(egui::Checkbox::new(&mut state.bw_orbit_line_fade, "Fade BW line"));
                     });
+
+                    ui.label(format!("Current physics step: {}", state.fixed_dt));
+                    ui.label(format!("Physics compute debt: {}", state.physics_accumulator));
                 });
 
         let mut remove_object = false;
@@ -304,11 +323,6 @@ pub fn draw(state: &mut State) {
                 });
 
             ctx_now.interaction_rect = ctx_menu_window.unwrap().response.interact_rect;
-            // ctx_menu = Some(CTXMenu {
-            //     object: ctx_now.object,
-            //     position: ctx_now.position,
-            //     interaction_rect: ctx_menu_window.unwrap().response.interact_rect,
-            // });
         }
         if remove_object {
             state.objects.remove_object(removed_object_index);
@@ -441,45 +455,62 @@ pub fn draw(state: &mut State) {
         }
     }
 
-    // TODO: Update prediction by dt every frame
     if state.prediction_dirty {
         if state.predict_future {
-            state.future_prediction = Some(predict(
+            let max_steps = (state.fw_predict_d_epoch / state.fixed_dt).round() as usize;
+            state.future_predictor = Some(Predictor {
+                objects: state.objects.clone(),
+                objects_terminal: state.objects.clone(),
+                path: VecDeque::with_capacity(max_steps * state.objects.len()),
+                steps_completed: 0,
+                max_steps,
+                direction: PredictionDirection::Future,
+            });
+
+            state.future_predictor.as_mut().unwrap().simulate_steps(
                 &mut state.y4_integrator,
-                state.objects.clone(),
-                state.fw_predict_pts.round() as i32,
-                state.fw_predict_d_epoch,
-            ));
+                state.fixed_dt,
+                state.objects.len(),
+            );
         } else {
-            state.future_prediction = None;
+            state.future_predictor = None;
         }
         if state.predict_past {
-            state.past_prediction = Some(predict(
+            let max_steps = (state.fw_predict_d_epoch / state.fixed_dt).round() as usize;
+            state.past_predictor = Some(Predictor {
+                objects: state.objects.clone(),
+                objects_terminal: state.objects.clone(),
+                path: VecDeque::with_capacity(max_steps * state.objects.len()),
+                steps_completed: 0,
+                max_steps,
+                direction: PredictionDirection::Past,
+            });
+
+            state.past_predictor.as_mut().unwrap().simulate_steps(
                 &mut state.y4_integrator,
-                state.objects.clone(),
-                state.bw_predict_pts.round() as i32,
-                -state.bw_predict_d_epoch,
-            ));
+                -state.fixed_dt,
+                state.objects.len(),
+            ); // This simulation leaves the terminal, ready to be rolled
         } else {
-            state.past_prediction = None;
+            state.past_predictor = None;
         }
         state.prediction_dirty = false;
     }
 
-    if let Some(prediction) = &state.future_prediction {
+    if let Some(pred) = &state.future_predictor {
         draw_prediction(
-            prediction,
-            state.objects.len(),
-            state.fw_predict_pts as usize,
+            &pred.path,
+            pred.objects.len(),
+            pred.max_steps,
             GREEN,
             state.fw_orbit_line_fade,
         );
     }
-    if let Some(prediction) = &state.past_prediction {
+    if let Some(pred) = &state.past_predictor {
         draw_prediction(
-            prediction,
-            state.objects.len(),
-            state.bw_predict_pts as usize,
+            &pred.path,
+            pred.objects.len(),
+            pred.max_steps,
             RED,
             state.bw_orbit_line_fade,
         );

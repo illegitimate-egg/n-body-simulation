@@ -1,12 +1,13 @@
 use macroquad::math::Vec2;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
+use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
 use std::simd::cmp::SimdPartialEq;
 #[cfg(not(target_arch = "wasm32"))]
 use std::simd::num::SimdFloat;
 #[cfg(not(target_arch = "wasm32"))]
-use std::simd::{f32x4, i32x4, Select, StdFloat};
+use std::simd::{Select, StdFloat, f32x4, i32x4};
 
 // const W1: f32 = 1.0 / (2.0 - 2.0_f32.cbrt());
 // const W0: f32 = -2.0_f32.cbrt() / (2.0 - 2.0_f32.cbrt());
@@ -213,25 +214,74 @@ impl Y4Integrator {
     }
 }
 
-pub fn predict(
-    y4_integrator: &mut Y4Integrator,
-    mut running_conditions: Objects,
-    predict_pts: i32,
-    predict_d_epoch: f32,
-) -> Vec<Vec2> {
-    let body_count = running_conditions.len();
-    let mut prediction: Vec<Vec2> = vec![Vec2::ZERO; (predict_pts as usize) * body_count];
-    let time_step = predict_d_epoch / predict_pts as f32; // TODO: Adaptively size steps (not to be taken lightly)
+pub enum PredictionDirection {
+    Future, // El futuro
+    Past,
+}
 
-    for step in 0..predict_pts {
-        y4_integrator.step(&mut running_conditions, time_step);
-        for body_idx in 0..body_count {
-            prediction[step as usize * body_count + body_idx] = Vec2::new(
-                running_conditions.position_x[body_idx],
-                running_conditions.position_y[body_idx],
-            );
+pub struct Predictor {
+    pub objects: Objects,          // Prediction head, furthest point in future
+    pub objects_terminal: Objects, // Prediction tail, right before the jaws of hell
+    pub path: VecDeque<Vec2>,
+    pub steps_completed: usize,
+    pub max_steps: usize,
+    pub direction: PredictionDirection,
+}
+
+impl Predictor {
+    fn signed_dt(&self, dt: f32) -> f32 {
+        match self.direction {
+            PredictionDirection::Future => dt.abs(),
+            PredictionDirection::Past => -dt.abs(),
         }
     }
 
-    prediction
+    pub fn simulate_steps(&mut self, integrator: &mut Y4Integrator, dt: f32, body_count: usize) {
+        let signed_dt = self.signed_dt(dt);
+
+        for _ in 0..self.max_steps {
+            integrator.step(&mut self.objects, signed_dt);
+
+            for body_idx in 0..body_count {
+                self.path.push_back(Vec2::new(
+                    self.objects.position_x[body_idx],
+                    self.objects.position_y[body_idx],
+                ));
+            }
+
+            self.steps_completed += 1;
+        }
+    }
+
+    pub fn advance(&mut self, integrator: &mut Y4Integrator, dt: f32, body_count: usize) {
+        // If dt is positive then we're going forwards
+        if dt.signum() > 0.0 {
+            self.path.drain(..body_count);
+
+            integrator.step(&mut self.objects, dt);
+            integrator.step(&mut self.objects_terminal, dt);
+
+            for body_idx in 0..body_count {
+                self.path.push_back(Vec2::new(
+                    self.objects.position_x[body_idx],
+                    self.objects.position_y[body_idx],
+                ));
+            }
+        } else {
+            // Bendy was a little devil thing
+            for _ in 0..body_count {
+                self.path.pop_back();
+            }
+
+            integrator.step(&mut self.objects, dt);
+            integrator.step(&mut self.objects_terminal, dt);
+
+            for body_idx in (0..body_count).rev() {
+                self.path.push_front(Vec2::new(
+                    self.objects_terminal.position_x[body_idx],
+                    self.objects_terminal.position_y[body_idx],
+                ));
+            }
+        }
+    }
 }
