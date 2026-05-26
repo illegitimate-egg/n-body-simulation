@@ -2,11 +2,13 @@ name: Build releases
 
 on:
   push:
-    branches: [ main, master ]
-  workflow_dispatch:
+    tags: ['v*']
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
 
 jobs:
   validate:
@@ -15,8 +17,10 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - id: validate
-        run: echo "version=$(git rev-parse --short ${{ github.sha }})" >> "$GITHUB_OUTPUT"
+      - uses: michaelklishin/rust-build-package-release-action@v2
+        id: validate
+        with:
+          command: validate-version
 
   build:
     needs: validate
@@ -70,5 +74,4 @@ jobs:
         with:
           body: "Autobuild latest commit"
           files: release/*
-          tag_name: ${{ steps.validate.outputs.version }}
           generate_release_notes: true
