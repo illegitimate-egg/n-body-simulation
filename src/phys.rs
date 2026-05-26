@@ -29,9 +29,9 @@ fn compute_acceleration(objects: &[Object], acc: &mut Vec<Vec2>) {
     }
 }
 
-fn derivatives_from_objects(acc: &mut Vec<Vec2>, objects: &[Object]) -> Vec<f32> {
+fn derivatives_from_objects(acc: &mut Vec<Vec2>, objects: &[Object], deriv: &mut Vec<f32>) {
     let n = objects.len();
-    let mut deriv = vec![0.0; n * 4];
+    deriv.resize(n * 4, 0.0);
     compute_acceleration(objects, acc);
     for i in 0..n {
         let base = i * 4;
@@ -42,7 +42,6 @@ fn derivatives_from_objects(acc: &mut Vec<Vec2>, objects: &[Object]) -> Vec<f32>
         deriv[base + 2] = acc[i].x;
         deriv[base + 3] = acc[i].y;
     }
-    deriv
 }
 
 pub struct RK4Integrator {
@@ -79,65 +78,49 @@ impl RK4Integrator {
     pub fn step(&mut self, objects: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
         let actual_dt = dt * time_multiplier;
         let n = objects.len();
-        self.buffs.state = pack_state(objects);
-        self.buffs.temp = vec![0.0; self.buffs.state.len()];
+        pack_state(objects, &mut self.buffs.state);
+        let state_buff_len = self.buffs.state.len();
+        self.buffs.temp.resize(state_buff_len, 0.0);
 
         // k1
-        self.buffs.k1 = derivatives_from_objects(&mut self.buffs.acceleration, objects);
+        derivatives_from_objects(&mut self.buffs.acceleration, objects, &mut self.buffs.k1);
 
         // k2
-        for i in 0..self.buffs.state.len() {
+        for i in 0..state_buff_len {
             self.buffs.temp[i] = self.buffs.state[i] + 0.5 * actual_dt * self.buffs.k1[i];
         }
-        self.buffs.temp_objects = (0..n)
-            .map(|i| {
-                let base = i * 4;
-                Object {
-                    position: Vec2::new(self.buffs.temp[base], self.buffs.temp[base + 1]),
-                    velocity: Vec2::new(self.buffs.temp[base + 2], self.buffs.temp[base + 3]),
-                    mass: objects[i].mass, // keep original masses
-                }
-            })
-            .collect();
-        self.buffs.k2 =
-            derivatives_from_objects(&mut self.buffs.acceleration, &self.buffs.temp_objects);
+        self.buffs.temp_objects.resize(n, Object::default());
+        Self::populate_temp_objects(n, &self.buffs.temp, objects, &mut self.buffs.temp_objects);
+        derivatives_from_objects(
+            &mut self.buffs.acceleration,
+            &self.buffs.temp_objects,
+            &mut self.buffs.k2,
+        );
 
         // k3
-        for i in 0..self.buffs.state.len() {
+        for i in 0..state_buff_len {
             self.buffs.temp[i] = self.buffs.state[i] + 0.5 * actual_dt * self.buffs.k2[i];
         }
-        self.buffs.temp_objects = (0..n)
-            .map(|i| {
-                let base = i * 4;
-                Object {
-                    position: Vec2::new(self.buffs.temp[base], self.buffs.temp[base + 1]),
-                    velocity: Vec2::new(self.buffs.temp[base + 2], self.buffs.temp[base + 3]),
-                    mass: objects[i].mass,
-                }
-            })
-            .collect();
-        self.buffs.k3 =
-            derivatives_from_objects(&mut self.buffs.acceleration, &self.buffs.temp_objects);
+        Self::populate_temp_objects(n, &self.buffs.temp, objects, &mut self.buffs.temp_objects);
+        derivatives_from_objects(
+            &mut self.buffs.acceleration,
+            &self.buffs.temp_objects,
+            &mut self.buffs.k3,
+        );
 
         // k4
-        for i in 0..self.buffs.state.len() {
+        for i in 0..state_buff_len {
             self.buffs.temp[i] = self.buffs.state[i] + actual_dt * self.buffs.k3[i];
         }
-        self.buffs.temp_objects = (0..n)
-            .map(|i| {
-                let base = i * 4;
-                Object {
-                    position: Vec2::new(self.buffs.temp[base], self.buffs.temp[base + 1]),
-                    velocity: Vec2::new(self.buffs.temp[base + 2], self.buffs.temp[base + 3]),
-                    mass: objects[i].mass,
-                }
-            })
-            .collect();
-        self.buffs.k4 =
-            derivatives_from_objects(&mut self.buffs.acceleration, &self.buffs.temp_objects);
+        Self::populate_temp_objects(n, &self.buffs.temp, objects, &mut self.buffs.temp_objects);
+        derivatives_from_objects(
+            &mut self.buffs.acceleration,
+            &self.buffs.temp_objects,
+            &mut self.buffs.k4,
+        );
 
         // Final update
-        for i in 0..self.buffs.state.len() {
+        for i in 0..state_buff_len {
             self.buffs.state[i] += actual_dt
                 * (self.buffs.k1[i]
                     + 2.0 * self.buffs.k2[i]
@@ -149,75 +132,36 @@ impl RK4Integrator {
 
         *ut += actual_dt;
     }
+
+    fn populate_temp_objects(n: usize, temp: &[f32], source: &[Object], out: &mut [Object]) {
+        (0..n).for_each(|i| {
+            let base = i * 4;
+
+            out[i].position = Vec2::new(temp[base], temp[base + 1]);
+            out[i].velocity = Vec2::new(temp[base + 2], temp[base + 3]);
+            out[i].mass = source[i].mass;
+        });
+    }
 }
-
-// Marked for execution: old euler cromer integrator
-// fn euler_cromer_step(object_vector: &mut [Object], ut: &mut f32, dt: f32, time_multiplier: f32) {
-//     let vector_state = object_vector.to_owned();
-
-//     for object in object_vector.iter_mut().enumerate() {
-//         let index = object.0;
-//         let object = object.1;
-
-//         // Apply forces (and their accelerations)
-//         // |F| = m_1 |a|
-//         // |F| = G(m_1 m_2) / r^2
-//         // r = sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)
-//         // We want this in terms of a
-//         // |a| = G(m_2) / r^2
-//         // |a| = G(m_2) / (m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2
-//         // Since the vector a will point towards m_2
-//         // Get unit vector pointing towards the second mass
-//         // butt (vec[2]) = [(m_1.x - m_2.x)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2), (m_1.y - m_2.y)/sqrt((m_1.x - m_2.x)^2 + (m_1.y - m_2.y)^2)];
-//         // Multiply it by the vector a to get the acceleration vector
-//         // a = |a| * butt
-//         // v = v += a * dt
-
-//         let mut a = Vec2::new(0.0, 0.0);
-
-//         for object_two in vector_state.iter() {
-//             if vector_state[index].position == object_two.position {
-//                 continue;
-//             }
-
-//             let r_squared = (object.position.x as f64 - object_two.position.x as f64).powi(2)
-//                 + (object.position.y as f64 - object_two.position.y as f64).powi(2);
-
-//             let r = r_squared.sqrt();
-
-//             let mag_a: f64 =
-//                 (NEWTONIAN_CONSTANT_OF_GRAVITATION * object_two.mass as f64) / r_squared;
-//             a += Vec2::new(
-//                 -mag_a as f32 * (object.position.x - object_two.position.x) / r as f32,
-//                 -mag_a as f32 * (object.position.y - object_two.position.y) / r as f32,
-//             );
-//         }
-
-//         // TODO: Update integrator
-
-//         // Apply the acceleration to the velocity
-//         object.velocity += a * dt * time_multiplier;
-//         // Make velocity velocit
-//         object.position += object.velocity * dt * time_multiplier;
-//     }
-
-//     *ut += dt * time_multiplier;
-// }
 
 pub fn predict(
     rk4_integrator: &mut RK4Integrator,
     initial_conditions: &[Object],
     predict_pts: i32,
     predict_d_epoch: f32,
-) -> Vec<Vec<Vec2>> {
-    let mut prediction: Vec<Vec<Vec2>> = Vec::with_capacity(predict_pts as usize);
+) -> Vec<Vec2> {
+    let body_count = initial_conditions.len();
+    let mut prediction: Vec<Vec2> = vec![Vec2::ZERO; (predict_pts as usize) * body_count];
     let time_step = predict_d_epoch / predict_pts as f32; // TODO: Adaptively size steps (not to be taken lightly)
     let mut running_conditions = initial_conditions.to_owned();
     let mut ut: f32 = 0.0;
 
-    for _ in 0..predict_pts {
+    for step in 0..predict_pts {
         rk4_integrator.step(&mut running_conditions, &mut ut, time_step, 1.0);
-        prediction.push(running_conditions.iter().map(|o| o.position).collect());
+        for (body_idx, _body) in running_conditions.iter().enumerate() {
+            prediction[step as usize * body_count + body_idx] =
+                running_conditions[body_idx].position;
+        }
     }
 
     prediction

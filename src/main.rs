@@ -21,14 +21,14 @@ struct State {
     fw_predict_d_epoch: f32,
     fw_orbit_line_fade: bool,
 
-    future_prediction: Option<Vec<Vec<Vec2>>>,
+    future_prediction: Option<Vec<Vec2>>,
 
     predict_past: bool,
     bw_predict_pts: f32,
     bw_predict_d_epoch: f32,
     bw_orbit_line_fade: bool,
 
-    past_prediction: Option<Vec<Vec<Vec2>>>,
+    past_prediction: Option<Vec<Vec2>>,
 
     prediction_dirty: bool,
 

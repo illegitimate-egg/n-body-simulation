@@ -1,14 +1,13 @@
 use crate::Object;
 
-pub fn pack_state(objects: &[Object]) -> Vec<f32> {
-    let mut state = Vec::with_capacity(objects.len() * 4);
-    for obj in objects {
-        state.push(obj.position.x);
-        state.push(obj.position.y);
-        state.push(obj.velocity.x);
-        state.push(obj.velocity.y);
+pub fn pack_state(objects: &[Object], state: &mut Vec<f32>) {
+    state.resize(objects.len() * 4, 0.0);
+    for (i, obj) in objects.iter().enumerate() {
+        state[i * 4] = obj.position.x;
+        state[i * 4 + 1] = obj.position.y;
+        state[i * 4 + 2] = obj.velocity.x;
+        state[i * 4 + 3] = obj.velocity.y;
     }
-    state
 }
 
 pub fn unpack_state(state: &[f32], objects: &mut [Object]) {

@@ -97,18 +97,15 @@ pub fn draw_objects(objects: &mut Vec<Object>) {
     }
 }
 
-pub fn draw_prediction(prediction: &[Vec<Vec2>], color: Color, fade: bool) {
+pub fn draw_prediction(prediction: &[Vec2], num_objects: usize, num_steps: usize, color: Color, fade: bool) {
     if prediction.is_empty() {
         return;
     }
-    let num_objects = prediction[0].len();
-    let num_steps = prediction.len();
-
     for obj_idx in 0..num_objects {
-        let mut prev_pos = prediction[0][obj_idx];
+        let mut prev_pos = prediction[obj_idx]; // This is optimized, it's looking for the first position of the target body. Because of how the vector is packed that happens to be the same as the index of the current object
 
-        for (step, objects) in prediction.iter().enumerate().skip(1) {
-            let cur_pos = objects[obj_idx];
+        for step in 1..num_steps {
+            let cur_pos = prediction[step * num_objects + obj_idx];
             let line_color = if fade {
                 let mut c = color;
                 c.a = 1.0 - (step as f32 / num_steps as f32);
@@ -402,9 +399,9 @@ pub fn draw(state: &mut State) {
     }
 
     if let Some(prediction) = &state.future_prediction {
-        draw_prediction(prediction, GREEN, state.fw_orbit_line_fade);
+        draw_prediction(prediction, state.objects.len(), state.fw_predict_pts as usize, GREEN, state.fw_orbit_line_fade);
     }
     if let Some(prediction) = &state.past_prediction {
-        draw_prediction(prediction, RED, state.fw_orbit_line_fade);
+        draw_prediction(prediction, state.objects.len(), state.bw_predict_pts as usize, RED, state.bw_orbit_line_fade);
     }
 }
