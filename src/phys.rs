@@ -52,18 +52,28 @@ fn kick(objects: &mut Objects, acc: &Acceleration, dt: f32) {
 
 #[derive(Default)]
 struct Acceleration {
-    x: Vec<f32>,
-    y: Vec<f32>,
+    x: Box<[f32]>,
+    y: Box<[f32]>,
 }
 
 impl Acceleration {
-    fn resize(&mut self, new_len: usize, value: f32) {
-        self.x.resize(new_len, value);
-        self.y.resize(new_len, value);
+    fn new(n: usize) -> Self {
+        Self {
+            x: vec![0.0_f32; n].into_boxed_slice(),
+            y: vec![0.0_f32; n].into_boxed_slice(),
+        }
     }
     fn fill(&mut self, value: f32) {
         self.x.fill(value);
         self.y.fill(value);
+    }
+    fn resize(&mut self, new_len: usize, value: f32) {
+        self.x = vec![0.0; new_len].into_boxed_slice();
+        self.y = vec![0.0; new_len].into_boxed_slice();
+        for i in 0..new_len {
+            self.x[i] = value;
+            self.y[i] = value;
+        }
     }
 }
 
@@ -73,8 +83,19 @@ pub struct Y4Integrator {
 }
 
 impl Y4Integrator {
+    pub fn new(body_count: usize) -> Self {
+        Self {
+            acceleration: Acceleration::new(body_count),
+        }
+    }
+}
+
+impl Y4Integrator {
     pub fn step(&mut self, objects: &mut Objects, dt: f32) {
-        self.acceleration.resize(objects.len(), 0.0);
+        if self.acceleration.x.len() != objects.len() {
+            self.acceleration.resize(objects.len(), 0.0);
+        }
+
         self.leapfrog_step(objects, W1 * dt);
         self.leapfrog_step(objects, W0 * dt);
         self.leapfrog_step(objects, W1 * dt);
@@ -105,7 +126,7 @@ pub fn predict(
 
     for step in 0..predict_pts {
         y4_integrator.step(&mut running_conditions, time_step);
-        for (body_idx, _body) in running_conditions.mass.iter().enumerate() {
+        for body_idx in 0..body_count {
             prediction[step as usize * body_count + body_idx] = Vec2::new(
                 running_conditions.position_x[body_idx],
                 running_conditions.position_y[body_idx],

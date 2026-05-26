@@ -42,38 +42,87 @@ struct State {
 
 #[derive(Debug, Default, Clone)]
 struct Objects {
-    position_x: Vec<f32>,
-    position_y: Vec<f32>,
+    position_x: Box<[f32]>,
+    position_y: Box<[f32]>,
+    
+    velocity_x: Box<[f32]>,
+    velocity_y: Box<[f32]>,
 
-    velocity_x: Vec<f32>,
-    velocity_y: Vec<f32>,
-
-    mass: Vec<f32>,
+    mass: Box<[f32]>,
 }
 
 impl Objects {
+    pub fn new(number_of_initial_bodies: usize) -> Objects {
+        Objects {
+            position_x: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
+            position_y: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
+            velocity_x: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
+            velocity_y: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
+            mass: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
+        }
+    }
+     
     pub fn len(&self) -> usize {
         self.mass.len()
     }
 
     pub fn insert_object(&mut self, position: Vec2, velocity: Vec2, mass: f32) {
-        self.position_x.push(position.x);
-        self.position_y.push(position.y);
+        let mut expanded_position_x = vec![0.0; self.len() + 1].into_boxed_slice();
+        let mut expanded_position_y = vec![0.0; self.len() + 1].into_boxed_slice();
+        let mut expanded_velocity_x = vec![0.0; self.len() + 1].into_boxed_slice();
+        let mut expanded_velocity_y = vec![0.0; self.len() + 1].into_boxed_slice();
+        let mut expanded_mass = vec![0.0; self.len() + 1].into_boxed_slice();
 
-        self.velocity_x.push(velocity.x);
-        self.velocity_y.push(velocity.y);
+        for i in 0..self.len() {
+            expanded_position_x[i] = self.position_x[i];
+            expanded_position_y[i] = self.position_y[i];
+            expanded_velocity_x[i] = self.velocity_x[i];
+            expanded_velocity_y[i] = self.velocity_y[i];
+            expanded_mass[i] = self.mass[i];
+        }
 
-        self.mass.push(mass);
+        expanded_position_x[self.len()] = position.x;
+        expanded_position_y[self.len()] = position.y;
+        expanded_velocity_x[self.len()] = velocity.x;
+        expanded_velocity_y[self.len()] = velocity.y;
+        expanded_mass[self.len()] = mass;
+
+        self.position_x = expanded_position_x;
+        self.position_y = expanded_position_y;
+        self.velocity_x = expanded_velocity_x;
+        self.velocity_y = expanded_velocity_y;
+        self.mass = expanded_mass;
     }
 
+    // Just realloc and shift stuff around so the target doesn't exist anymore
     pub fn remove_object(&mut self, idx: usize) {
-        self.position_x.remove(idx);
-        self.position_y.remove(idx);
+        let mut shrunk_position_x = vec![0.0; self.len() - 1].into_boxed_slice();
+        let mut shrunk_position_y = vec![0.0; self.len() - 1].into_boxed_slice();
+        let mut shrunk_velocity_x = vec![0.0; self.len() - 1].into_boxed_slice();
+        let mut shrunk_velocity_y = vec![0.0; self.len() - 1].into_boxed_slice();
+        let mut shrunk_mass = vec![0.0; self.len() - 1].into_boxed_slice();
 
-        self.velocity_x.remove(idx);
-        self.velocity_y.remove(idx);
+        for i in 0..idx {
+            shrunk_position_x[i] = self.position_x[i];
+            shrunk_position_y[i] = self.position_y[i];
+            shrunk_velocity_x[i] = self.velocity_x[i];
+            shrunk_velocity_y[i] = self.velocity_y[i];
+            shrunk_mass[i] = self.mass[i];
+        }
 
-        self.mass.remove(idx);
+        for i in idx+1..self.len()-1 {
+            shrunk_position_x[i - 1] = self.position_x[i];
+            shrunk_position_y[i - 1] = self.position_y[i];
+            shrunk_velocity_x[i - 1] = self.velocity_x[i];
+            shrunk_velocity_y[i - 1] = self.velocity_y[i];
+            shrunk_mass[i] = self.mass[i - 1];
+        }
+
+        self.position_x = shrunk_position_x;
+        self.position_y = shrunk_position_y;
+        self.velocity_x = shrunk_velocity_x;
+        self.velocity_x = shrunk_velocity_y;
+        self.mass = shrunk_mass;
     }
 }
 
@@ -103,7 +152,7 @@ impl Mode {
 #[macroquad::main("n-body")]
 async fn main() {
     let mut state = State {
-        objects: Objects::default(),
+        objects: Objects::new(3), // 3 body problem
         ut: 0.0,
 
         mode: Mode::Paused,
@@ -131,33 +180,34 @@ async fn main() {
 
         camera_controller: CameraController::new(),
 
-        y4_integrator: Y4Integrator::default(),
+        y4_integrator: Y4Integrator::new(3),
     };
 
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
     // Since G scales so quickly the masses either have to be enormous or the distances scaled
 
     // Three body problem solution (Requires ~~rk4~~ for sufficient quality)
+    // The first 3 entries are already allocated and ready to be written to
     // Create a mass
-    state.objects.insert_object(
-        Vec2::new(0.9700436, -0.24308753),
-        Vec2::new(0.4662037, 0.43236573),
-        1.498e10,
-    );
+    state.objects.position_x[0] = 0.9700436;
+    state.objects.position_y[0] = -0.24308753;
+    state.objects.velocity_x[0] = 0.4662037;
+    state.objects.velocity_y[0] = 0.43236573;
+    state.objects.mass[0] = 1.498e10;
 
     // Create another mass
-    state.objects.insert_object(
-        -Vec2::new(state.objects.position_x[0], state.objects.position_y[0]),
-        Vec2::new(state.objects.velocity_x[0], state.objects.velocity_y[0]),
-        state.objects.mass[0],
-    );
+    state.objects.position_x[1] = -state.objects.position_x[0];
+    state.objects.position_y[1] = -state.objects.position_y[0];
+    state.objects.velocity_x[1] = state.objects.velocity_x[0];
+    state.objects.velocity_y[1] = state.objects.velocity_y[0];
+    state.objects.mass[1] = state.objects.mass[0];
 
     // Guess what
-    state.objects.insert_object(
-        Vec2::new(0.0, 0.0),
-        -2.0 * Vec2::new(state.objects.velocity_x[0], state.objects.velocity_y[0]),
-        state.objects.mass[0],
-    );
+    state.objects.position_x[2] = 0.0;
+    state.objects.position_y[2] = 0.0;
+    state.objects.velocity_x[2] = -2.0 * state.objects.velocity_x[0];
+    state.objects.velocity_y[2] = -2.0 * state.objects.velocity_y[0];
+    state.objects.mass[2] = state.objects.mass[0];
 
     loop {
         clear_background(Color::new(0.95, 0.95, 0.95, 1.0));
