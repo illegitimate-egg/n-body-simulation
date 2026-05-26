@@ -97,7 +97,7 @@ pub fn draw_objects(objects: &mut Vec<Object>) {
     }
 }
 
-pub fn draw_prediction(prediction: &[Vec<Object>], color: Color, fade: bool) {
+pub fn draw_prediction(prediction: &[Vec<Vec2>], color: Color, fade: bool) {
     if prediction.is_empty() {
         return;
     }
@@ -105,10 +105,10 @@ pub fn draw_prediction(prediction: &[Vec<Object>], color: Color, fade: bool) {
     let num_steps = prediction.len();
 
     for obj_idx in 0..num_objects {
-        let mut prev_pos = prediction[0][obj_idx].position;
+        let mut prev_pos = prediction[0][obj_idx];
 
         for (step, objects) in prediction.iter().enumerate().skip(1) {
-            let cur_pos = objects[obj_idx].position;
+            let cur_pos = objects[obj_idx];
             let line_color = if fade {
                 let mut c = color;
                 c.a = 1.0 - (step as f32 / num_steps as f32);
@@ -157,9 +157,13 @@ pub fn draw(state: &mut State) {
                     ui.checkbox(&mut state.predict_future, "Predict future");
                     ui.add_enabled_ui(state.predict_future, |fwui| {
                         let fw_pts_label = fwui.label("FW Simulation points");
-                        fwui.add(egui::Slider::new(&mut state.fw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(fw_pts_label.id);
+                        if fwui.add(egui::Slider::new(&mut state.fw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(fw_pts_label.id).changed() {
+                            state.prediction_dirty = true;
+                        }
                         let fw_epoch_label = fwui.label("Max Δepoch");
-                        fwui.add(egui::DragValue::new(&mut state.fw_predict_d_epoch)).labelled_by(fw_epoch_label.id);
+                        if fwui.add(egui::DragValue::new(&mut state.fw_predict_d_epoch)).labelled_by(fw_epoch_label.id).changed() {
+                            state.prediction_dirty = true;
+                        }
                         fwui.add(egui::Checkbox::new(&mut state.fw_orbit_line_fade, "Fade FW line"));
                     });
 
@@ -167,9 +171,13 @@ pub fn draw(state: &mut State) {
                     ui.checkbox(&mut state.predict_past, "Predict past");
                     ui.add_enabled_ui(state.predict_past, |bwui| {
                         let bw_pts_label = bwui.label("BW Simulation points");
-                        bwui.add(egui::Slider::new(&mut state.bw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(bw_pts_label.id);
+                        if bwui.add(egui::Slider::new(&mut state.bw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(bw_pts_label.id).changed() {
+                            state.prediction_dirty = true;
+                        }
                         let bw_epoch_label = bwui.label("Max Δepoch");
-                        bwui.add(egui::DragValue::new(&mut state.bw_predict_d_epoch)).labelled_by(bw_epoch_label.id);
+                        if bwui.add(egui::DragValue::new(&mut state.bw_predict_d_epoch)).labelled_by(bw_epoch_label.id).changed() {
+                            state.prediction_dirty = true;
+                        }
                         bwui.add(egui::Checkbox::new(&mut state.bw_orbit_line_fade, "Fade BW line"));
                     });
                 });
@@ -186,29 +194,54 @@ pub fn draw(state: &mut State) {
                         remove_object = true;
                     }
                     let mass_label = ui.label("Object mass / kg");
-                    ui.add(egui::DragValue::new(
-                        &mut state.objects[ctx_now.object].mass,
-                    ))
-                    .labelled_by(mass_label.id);
+                    if ui
+                        .add(egui::DragValue::new(
+                            &mut state.objects[ctx_now.object].mass,
+                        ))
+                        .labelled_by(mass_label.id)
+                        .changed()
+                    {
+                        state.prediction_dirty = true;
+                    }
 
                     ui.label("Position (s) / m");
                     ui.columns(2, |colui| {
-                        colui[0].add(egui::DragValue::new(
-                            &mut state.objects[ctx_now.object].position.x,
-                        ));
-                        colui[1].add(egui::DragValue::new(
-                            &mut state.objects[ctx_now.object].position.y,
-                        ));
+                        if colui[0]
+                            .add(egui::DragValue::new(
+                                &mut state.objects[ctx_now.object].position.x,
+                            ))
+                            .changed()
+                        {
+                            state.prediction_dirty = true;
+                        }
+                        if colui[1]
+                            .add(egui::DragValue::new(
+                                &mut state.objects[ctx_now.object].position.y,
+                            ))
+                            .changed()
+                        {
+                            state.prediction_dirty = true;
+                        }
                     });
 
                     ui.label("Velocity (v) / ms^-1");
                     ui.columns(2, |colui| {
-                        colui[0].add(egui::DragValue::new(
-                            &mut state.objects[ctx_now.object].velocity.x,
-                        ));
-                        colui[1].add(egui::DragValue::new(
-                            &mut state.objects[ctx_now.object].velocity.y,
-                        ));
+                        if colui[0]
+                            .add(egui::DragValue::new(
+                                &mut state.objects[ctx_now.object].velocity.x,
+                            ))
+                            .changed()
+                        {
+                            state.prediction_dirty = true;
+                        };
+                        if colui[1]
+                            .add(egui::DragValue::new(
+                                &mut state.objects[ctx_now.object].velocity.y,
+                            ))
+                            .changed()
+                        {
+                            state.prediction_dirty = true;
+                        };
                     });
                 });
 
@@ -225,139 +258,153 @@ pub fn draw(state: &mut State) {
         }
     });
 
-        if is_mouse_button_down(MouseButton::Left) {
-            match state.mouse_state {
-                MouseStatus::Released => {
-                    if let Some(ctx) = state.ctx_menu
-                        && !(ctx.interaction_rect.min.x < mouse_position().0
-                            && ctx.interaction_rect.max.x + ctx.interaction_rect.min.x
-                                > mouse_position().0
-                            && ctx.interaction_rect.min.y < mouse_position().1
-                            && ctx.interaction_rect.max.y + ctx.interaction_rect.min.y
-                                > mouse_position().1)
-                    {
-                        state.ctx_menu = None;
-                    }
-
-                    let mut found_index = None;
-                    for (i, object) in state.objects.iter_mut().enumerate() {
-                        let radius = Circle::new(
-                            object.position.x,
-                            object.position.y,
-                            5.0 / 1000.0, // 1000 is the zoom factor
-                        );
-                        if radius.contains(
-                            &state.camera_controller
-                                .camera
-                                .screen_to_world(mouse_position().into()),
-                        ) {
-                            found_index = Some(i);
-                            break;
-                        }
-                    }
-
-                    state.mouse_state = match found_index {
-                        Some(idx) => MouseStatus::Dragging(idx),
-                        None => MouseStatus::Held,
-                    };
-                }
-                MouseStatus::Creating => {
-                    state.objects.push(Object {
-                        position: state.camera_controller
-                            .camera
-                            .screen_to_world(mouse_position().into()),
-                        velocity: Vec2::new(0.0, 0.0),
-                        mass: 1000000.0,
-                    });
-
-                    state.mouse_state = MouseStatus::Released;
-                }
-                _ => {}
-            }
-        } else {
-            if state.mouse_state == MouseStatus::CreatingStart {
-                state.mouse_state = MouseStatus::Creating;
-            } else if state.mouse_state == MouseStatus::Creating {
-                let world_mouse = state.camera_controller
-                    .camera
-                    .screen_to_world(mouse_position().into());
-                draw_circle(
-                    world_mouse.x,
-                    world_mouse.y,
-                    5.0 / 1000.0,
-                    Color {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 0.5,
-                    },
-                );
-            } else {
-                state.mouse_state = MouseStatus::Released;
-            }
-        }
-
-        match state.mode {
-            Mode::Simulating => {}
-            Mode::Paused => {
-                if let MouseStatus::Dragging(index) = state.mouse_state {
-                    state.objects[index].position = state.camera_controller
-                        .camera
-                        .screen_to_world(mouse_position().into());
-                }
-            }
-        }
-
-        // Open ctx menu
-        if is_mouse_button_down(MouseButton::Right) {
-            let mut found_index = None;
-            for (i, object) in state.objects.iter_mut().enumerate() {
-                let radius = Circle::new(object.position.x, object.position.y, 5.0 / 1000.0);
-                if radius.contains(
-                    &state.camera_controller
-                        .camera
-                        .screen_to_world(mouse_position().into()),
-                ) {
-                    found_index = Some(i);
-                    break;
-                } else {
+    if is_mouse_button_down(MouseButton::Left) {
+        match state.mouse_state {
+            MouseStatus::Released => {
+                if let Some(ctx) = state.ctx_menu
+                    && !(ctx.interaction_rect.min.x < mouse_position().0
+                        && ctx.interaction_rect.max.x + ctx.interaction_rect.min.x
+                            > mouse_position().0
+                        && ctx.interaction_rect.min.y < mouse_position().1
+                        && ctx.interaction_rect.max.y + ctx.interaction_rect.min.y
+                            > mouse_position().1)
+                {
                     state.ctx_menu = None;
                 }
-            }
 
-            if let Some(idx) = found_index {
-                state.ctx_menu = Some(CTXMenu {
-                    object: idx,
-                    position: egui::Pos2::new(mouse_position().0, mouse_position().1),
-                    interaction_rect: egui::Rect {
-                        min: egui::Pos2::new(0.0, 0.0),
-                        max: egui::Pos2::new(0.0, 0.0),
-                    },
+                let mut found_index = None;
+                for (i, object) in state.objects.iter_mut().enumerate() {
+                    let radius = Circle::new(
+                        object.position.x,
+                        object.position.y,
+                        5.0 / 1000.0, // 1000 is the zoom factor
+                    );
+                    if radius.contains(
+                        &state
+                            .camera_controller
+                            .camera
+                            .screen_to_world(mouse_position().into()),
+                    ) {
+                        found_index = Some(i);
+                        break;
+                    }
+                }
+
+                state.mouse_state = match found_index {
+                    Some(idx) => MouseStatus::Dragging(idx),
+                    None => MouseStatus::Held,
+                };
+            }
+            MouseStatus::Creating => {
+                state.objects.push(Object {
+                    position: state
+                        .camera_controller
+                        .camera
+                        .screen_to_world(mouse_position().into()),
+                    velocity: Vec2::new(0.0, 0.0),
+                    mass: 1000000.0,
                 });
+
+                state.mouse_state = MouseStatus::Released;
+            }
+            _ => {}
+        }
+    } else {
+        if state.mouse_state == MouseStatus::CreatingStart {
+            state.mouse_state = MouseStatus::Creating;
+        } else if state.mouse_state == MouseStatus::Creating {
+            let world_mouse = state
+                .camera_controller
+                .camera
+                .screen_to_world(mouse_position().into());
+            draw_circle(
+                world_mouse.x,
+                world_mouse.y,
+                5.0 / 1000.0,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+            );
+        } else {
+            state.mouse_state = MouseStatus::Released;
+        }
+    }
+
+    match state.mode {
+        Mode::Simulating => {}
+        Mode::Paused => {
+            if let MouseStatus::Dragging(index) = state.mouse_state {
+                state.objects[index].position = state
+                    .camera_controller
+                    .camera
+                    .screen_to_world(mouse_position().into());
+                state.prediction_dirty = true;
+            }
+        }
+    }
+
+    // Open ctx menu
+    if is_mouse_button_down(MouseButton::Right) {
+        let mut found_index = None;
+        for (i, object) in state.objects.iter_mut().enumerate() {
+            let radius = Circle::new(object.position.x, object.position.y, 5.0 / 1000.0);
+            if radius.contains(
+                &state
+                    .camera_controller
+                    .camera
+                    .screen_to_world(mouse_position().into()),
+            ) {
+                found_index = Some(i);
+                break;
+            } else {
+                state.ctx_menu = None;
             }
         }
 
-        if state.predict_future {
-            draw_prediction(
-                &predict(
-                    &state.objects,
-                    state.fw_predict_pts.round() as i32,
-                    state.fw_predict_d_epoch,
-                ),
-                GREEN,
-                state.fw_orbit_line_fade,
-            );
+        if let Some(idx) = found_index {
+            state.ctx_menu = Some(CTXMenu {
+                object: idx,
+                position: egui::Pos2::new(mouse_position().0, mouse_position().1),
+                interaction_rect: egui::Rect {
+                    min: egui::Pos2::new(0.0, 0.0),
+                    max: egui::Pos2::new(0.0, 0.0),
+                },
+            });
         }
+    }
 
-        if state.predict_past {
-            draw_prediction(
-                &predict(
-                    &state.objects,
-                    state.bw_predict_pts.round() as i32,
-                    -state.bw_predict_d_epoch,
-                ),
-                RED,
-                state.bw_orbit_line_fade,
-            );
+    // TODO: Update prediction by dt every frame
+    if state.prediction_dirty {
+        if state.predict_future {
+            state.future_prediction = Some(predict(
+                &mut state.rk4_integrator,
+                &state.objects,
+                state.fw_predict_pts.round() as i32,
+                state.fw_predict_d_epoch,
+            ));
+        } else {
+            state.future_prediction = None;
         }
+        if state.predict_past {
+            state.past_prediction = Some(predict(
+                &mut state.rk4_integrator,
+                &state.objects,
+                state.bw_predict_pts.round() as i32,
+                -state.bw_predict_d_epoch,
+            ));
+        } else {
+            state.past_prediction = None;
+        }
+        state.prediction_dirty = false;
+    }
+
+    if let Some(prediction) = &state.future_prediction {
+        draw_prediction(prediction, GREEN, state.fw_orbit_line_fade);
+    }
+    if let Some(prediction) = &state.past_prediction {
+        draw_prediction(prediction, RED, state.fw_orbit_line_fade);
+    }
 }

@@ -1,6 +1,9 @@
 use macroquad::prelude::*;
 
-use crate::{phys::rk4_step, ui::{CTXMenu, CameraController}};
+use crate::{
+    phys::RK4Integrator,
+    ui::{CTXMenu, CameraController},
+};
 
 mod phys;
 mod ui;
@@ -18,16 +21,24 @@ struct State {
     fw_predict_d_epoch: f32,
     fw_orbit_line_fade: bool,
 
+    future_prediction: Option<Vec<Vec<Vec2>>>,
+
     predict_past: bool,
     bw_predict_pts: f32,
     bw_predict_d_epoch: f32,
     bw_orbit_line_fade: bool,
+
+    past_prediction: Option<Vec<Vec<Vec2>>>,
+
+    prediction_dirty: bool,
 
     mouse_state: MouseStatus,
 
     ctx_menu: Option<CTXMenu>,
 
     camera_controller: CameraController,
+
+    rk4_integrator: RK4Integrator,
 }
 
 // All masses are singularities
@@ -85,18 +96,26 @@ async fn main() {
         fw_predict_d_epoch: 20.0,
         fw_orbit_line_fade: false,
 
+        future_prediction: None,
+
         predict_past: false,
         bw_predict_pts: 1000.0,
         bw_predict_d_epoch: 20.0,
         bw_orbit_line_fade: true,
 
+        past_prediction: None,
+
+        prediction_dirty: true,
+
         mouse_state: MouseStatus::Released,
 
         ctx_menu: None,
 
-        camera_controller: CameraController::new()
+        camera_controller: CameraController::new(),
+
+        rk4_integrator: RK4Integrator::new(),
     };
-    
+
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
     // Since G scales so quickly the masses either have to be enormous or the distances scaled
 
@@ -131,7 +150,7 @@ async fn main() {
         ui::draw(&mut state);
 
         match state.mode {
-            Mode::Simulating => rk4_step(
+            Mode::Simulating => state.rk4_integrator.step(
                 &mut state.objects,
                 &mut state.ut,
                 get_frame_time(),
