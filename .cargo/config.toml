@@ -1,7 +1,10 @@
 [target.wasm32-unknown-unknown]
-# I just need something in here to stop build from ending the world
-rustflags = ["-v"]
-
+rustflags = [
+    "-C", "link-arg=--import-memory",
+    "-C", "link-arg=--allow-undefined",
+    "-C", "link-arg=-z",
+    "-C", "link-arg=stack-size=1048576",
+]
 [build]
 rustflags = ["-C", "target-cpu=native"]
 
