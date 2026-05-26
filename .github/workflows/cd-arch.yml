@@ -60,7 +60,6 @@ jobs:
       runs-on: ubuntu-latest
       steps:
       - uses: actions/checkout@v4
-      - uses: michaelklishin/rust-build-package-release-action@v2
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -69,5 +68,5 @@ jobs:
           find artifacts -type f -name '*${{ needs.validate.outputs.version }}*' -exec cp {} release/ \;
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: release_notes.md
+          body: "Autobuild latest commit"
           files: release/*
