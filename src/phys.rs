@@ -1,6 +1,11 @@
 use macroquad::math::Vec2;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
+// const W1: f32 = 1.0 / (2.0 - 2.0_f32.cbrt());
+// const W0: f32 = -2.0_f32.cbrt() / (2.0 - 2.0_f32.cbrt());
+const W1: f32 = 1.351_207_1;
+const W0: f32 = -1.702_414_4;
+
 use crate::Objects;
 
 fn compute_acceleration(objects: &Objects, acc: &mut Acceleration) {
@@ -8,7 +13,6 @@ fn compute_acceleration(objects: &Objects, acc: &mut Acceleration) {
     const SOFTENING_TERM: f32 = 1e-6;
     let n = objects.len();
 
-    acc.resize(objects.len(), 0.0);
     acc.fill(0.0);
 
     for i in 0..n {
@@ -70,6 +74,13 @@ pub struct Y4Integrator {
 
 impl Y4Integrator {
     pub fn step(&mut self, objects: &mut Objects, dt: f32) {
+        self.acceleration.resize(objects.len(), 0.0);
+        self.leapfrog_step(objects, W1 * dt);
+        self.leapfrog_step(objects, W0 * dt);
+        self.leapfrog_step(objects, W1 * dt);
+    }
+
+    fn leapfrog_step(&mut self, objects: &mut Objects, dt: f32) {
         compute_acceleration(objects, &mut self.acceleration);
 
         kick(objects, &self.acceleration, dt / 2.0);
