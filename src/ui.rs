@@ -484,4 +484,6 @@ pub fn draw(state: &mut State) {
             state.bw_orbit_line_fade,
         );
     }
+
+    state.prediction_dirty = true;
 }

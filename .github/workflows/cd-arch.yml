@@ -1,0 +1,63 @@
+name: Build releases
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            command: release-linux
+          - target: aarch64-apple-darwin
+            os: macos-14
+            command: release-macos
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            command: release-macos
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            command: release-windows
+            
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --profile minimal
+      - uses: michaelklishin/rust-build-package-release-action@v2
+        id: build
+        with:
+          command: ${{ matrix.command }}
+          target: ${{ matrix.target }}
+          locked: 'true'
+          archive: 'true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/*
+
+    release:
+      needs: [build]
+      runs-on: ubuntu-latest
+      steps:
+      - uses: actions/checkout@v4
+      - uses: michaelklishin/rust-build-package-release-action@v2
+        with:
+          command: extract-changelog
+          version: ${{ needs.validate.outputs.version }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: |
+          mkdir -p release
+          find artifacts -type f -name '*${{ needs.validate.outputs.version }}*' -exec cp {} release/ \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: release_notes.md
+          files: release/*

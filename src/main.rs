@@ -238,21 +238,28 @@ async fn main() {
         set_default_camera(); // Switch to screenspace rendering
 
         draw_text(
-            &format! {"dt: {}", get_frame_time()}.to_string(),
+            format! {"dt: {}", get_frame_time()},
             20.0,
             20.0,
             30.0,
             DARKGRAY,
         );
         draw_text(
-            &format! {"ut: {}", state.ut}.to_string(),
+            format! {"fps: {}", get_frame_time().recip()},
+            20.0,
+            80.0,
+            30.0,
+            DARKGRAY,
+        );
+        draw_text(
+            format! {"ut: {}", state.ut},
             20.0,
             50.0,
             30.0,
             DARKGRAY,
         );
         draw_text(
-            &format! {"{}x zoom", state.camera_controller.camera.zoom}.to_string(),
+            format! {"{}x zoom", state.camera_controller.camera.zoom},
             20.0,
             500.0,
             20.0,
@@ -261,7 +268,5 @@ async fn main() {
 
         egui_macroquad::draw();
         next_frame().await;
-
-        // std::process::exit(1);
     }
 }
