@@ -1,5 +1,8 @@
 use macroquad::math::Vec2;
 use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
+use std::simd::cmp::SimdPartialEq;
+use std::simd::num::SimdFloat;
+use std::simd::{Select, StdFloat, f32x4, i32x4};
 
 // const W1: f32 = 1.0 / (2.0 - 2.0_f32.cbrt());
 // const W0: f32 = -2.0_f32.cbrt() / (2.0 - 2.0_f32.cbrt());
@@ -10,28 +13,90 @@ use crate::Objects;
 
 fn compute_acceleration(objects: &Objects, acc: &mut Acceleration) {
     const G: f32 = NEWTONIAN_CONSTANT_OF_GRAVITATION as f32;
-    const SOFTENING_TERM: f32 = 1e-6;
+    const SOFTENING: f32 = 1e-6;
+    let broadcast_g = f32x4::splat(G);
     let n = objects.len();
 
     acc.fill(0.0);
 
     for i in 0..n {
-        for j in (i + 1)..n {
-            let r_x = objects.position_x[j] - objects.position_x[i];
-            let r_y = objects.position_y[j] - objects.position_y[i];
+        // Broadcast i-body position
+        let position_x_i = f32x4::splat(objects.position_x[i]);
+        let position_y_i = f32x4::splat(objects.position_y[i]);
 
-            let dist_sq = r_x * r_x + r_y * r_y + SOFTENING_TERM;
-            let inv_dist = dist_sq.sqrt().recip();
-            let inv_dist3 = inv_dist * inv_dist * inv_dist;
-            let force_x = r_x * inv_dist3;
-            let force_y = r_y * inv_dist3;
+        // SIMD accumulators
+        let mut acceleration_x = f32x4::splat(0.0);
+        let mut acceleration_y = f32x4::splat(0.0);
 
-            let j_gravity_coefficient = G * objects.mass[j];
-            let i_gravity_coefficient = G * objects.mass[i];
-            acc.x[i] += force_x * j_gravity_coefficient;
-            acc.y[i] += force_y * j_gravity_coefficient;
-            acc.x[j] -= force_x * i_gravity_coefficient;
-            acc.y[j] -= force_y * i_gravity_coefficient;
+        let mut j = 0;
+
+        while j + 4 <= n {
+            // Load 4 positions
+            let position_x_j = f32x4::from([
+                objects.position_x[j],
+                objects.position_x[j + 1],
+                objects.position_x[j + 2],
+                objects.position_x[j + 3],
+            ]);
+
+            let position_y_j = f32x4::from([
+                objects.position_y[j],
+                objects.position_y[j + 1],
+                objects.position_y[j + 2],
+                objects.position_y[j + 3],
+            ]);
+
+            let mass_j = f32x4::from([
+                objects.mass[j],
+                objects.mass[j + 1],
+                objects.mass[j + 2],
+                objects.mass[j + 3],
+            ]);
+
+            let distance_x = position_x_j - position_x_i;
+            let distance_y = position_y_j - position_y_i;
+
+            let distance_squared =
+                distance_x * distance_x + distance_y * distance_y + f32x4::splat(SOFTENING);
+
+            let inv_distance = distance_squared.sqrt().recip();
+            let inv_distance_3 = inv_distance * inv_distance * inv_distance;
+
+            // Masking the SIMD vector so that we can't play with ourselves
+            let lane_indices =
+                i32x4::from([j as i32, (j + 1) as i32, (j + 2) as i32, (j + 3) as i32]);
+            let i_vec = i32x4::splat(i as i32);
+            let mask = lane_indices.simd_ne(i_vec);
+
+            let scale = mass_j * broadcast_g * inv_distance_3;
+            let masked_scale = mask.select(scale, f32x4::splat(0.0));
+
+            acceleration_x += distance_x * masked_scale;
+            acceleration_y += distance_y * masked_scale;
+
+            j += 4;
+        }
+
+        acc.x[i] = acceleration_x.reduce_sum();
+        acc.y[i] = acceleration_y.reduce_sum();
+
+        while j < n {
+            if i != j {
+                let dx = objects.position_x[j] - objects.position_x[i];
+                let dy = objects.position_y[j] - objects.position_y[i];
+
+                let dist_sq = dx * dx + dy * dy + SOFTENING;
+
+                let inv_dist = dist_sq.sqrt().recip();
+                let inv_dist3 = inv_dist * inv_dist * inv_dist;
+
+                let scale = G * objects.mass[j] * inv_dist3;
+
+                acc.x[i] += dx * scale;
+                acc.y[i] += dy * scale;
+            }
+
+            j += 1;
         }
     }
 }

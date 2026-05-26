@@ -93,7 +93,12 @@ impl CameraController {
 pub fn draw_objects(objects: &Objects) {
     for i in 0..objects.len() {
         // Draw it
-        draw_circle(objects.position_x[i], objects.position_y[i], 5.0 / 1000.0, BLACK); // Draw a thing
+        draw_circle(
+            objects.position_x[i],
+            objects.position_y[i],
+            5.0 / 1000.0,
+            BLACK,
+        ); // Draw a thing
     }
 }
 
@@ -157,7 +162,9 @@ pub fn draw(state: &mut State) {
                     ui.separator();
 
                     // FW Time prediction
-                    ui.checkbox(&mut state.predict_future, "Predict future");
+                    if ui.checkbox(&mut state.predict_future, "Predict future").changed() {
+                        state.prediction_dirty = true;
+                    }
                     ui.add_enabled_ui(state.predict_future, |fwui| {
                         let fw_pts_label = fwui.label("FW Simulation points");
                         if fwui.add(egui::Slider::new(&mut state.fw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(fw_pts_label.id).changed() {
@@ -171,7 +178,9 @@ pub fn draw(state: &mut State) {
                     });
 
                     // BW Time prediction
-                    ui.checkbox(&mut state.predict_past, "Predict past");
+                    if ui.checkbox(&mut state.predict_past, "Predict past").changed() {
+                        state.prediction_dirty = true;
+                    }
                     ui.add_enabled_ui(state.predict_past, |bwui| {
                         let bw_pts_label = bwui.label("BW Simulation points");
                         if bwui.add(egui::Slider::new(&mut state.bw_predict_pts, 10f32..=10000f32).step_by(1.0)).labelled_by(bw_pts_label.id).changed() {
@@ -301,13 +310,12 @@ pub fn draw(state: &mut State) {
             }
             MouseStatus::Creating => {
                 let position = state
-                        .camera_controller
-                        .camera
-                        .screen_to_world(mouse_position().into());
-                state.objects.insert_object(position,
-                    Vec2::new(0.0, 0.0),
-                    1000000.0,
-                );
+                    .camera_controller
+                    .camera
+                    .screen_to_world(mouse_position().into());
+                state
+                    .objects
+                    .insert_object(position, Vec2::new(0.0, 0.0), 1000000.0);
 
                 state.mouse_state = MouseStatus::Released;
                 state.prediction_dirty = true;
@@ -358,7 +366,11 @@ pub fn draw(state: &mut State) {
     if is_mouse_button_down(MouseButton::Right) {
         let mut found_index = None;
         for i in 0..state.objects.len() {
-            let radius = Circle::new(state.objects.position_x[i], state.objects.position_y[i], 5.0 / 1000.0);
+            let radius = Circle::new(
+                state.objects.position_x[i],
+                state.objects.position_y[i],
+                5.0 / 1000.0,
+            );
             if radius.contains(
                 &state
                     .camera_controller

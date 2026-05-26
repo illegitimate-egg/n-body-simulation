@@ -1,3 +1,5 @@
+#![feature(portable_simd)]
+
 use macroquad::prelude::*;
 
 use crate::{
@@ -44,7 +46,7 @@ struct State {
 struct Objects {
     position_x: Box<[f32]>,
     position_y: Box<[f32]>,
-    
+
     velocity_x: Box<[f32]>,
     velocity_y: Box<[f32]>,
 
@@ -61,7 +63,7 @@ impl Objects {
             mass: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
         }
     }
-     
+
     pub fn len(&self) -> usize {
         self.mass.len()
     }
@@ -110,7 +112,7 @@ impl Objects {
             shrunk_mass[i] = self.mass[i];
         }
 
-        for i in idx+1..self.len()-1 {
+        for i in idx + 1..self.len() - 1 {
             shrunk_position_x[i - 1] = self.position_x[i];
             shrunk_position_y[i - 1] = self.position_y[i];
             shrunk_velocity_x[i - 1] = self.velocity_x[i];
