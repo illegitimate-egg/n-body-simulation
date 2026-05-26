@@ -1,10 +1,6 @@
 [target.wasm32-unknown-unknown]
-rustflags = [
-    "-C", "link-arg=--import-memory",
-    "-C", "link-arg=--allow-undefined",
-    "-C", "link-arg=-z",
-    "-C", "link-arg=stack-size=1048576",
-]
+rustflags = ["-v"]
+
 [build]
 rustflags = ["-C", "target-cpu=native"]
 

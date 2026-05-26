@@ -20,7 +20,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly
+          toolchain: stable
           target: wasm32-unknown-unknown
           override: true
 
@@ -39,12 +39,6 @@ jobs:
             exit 1
           fi
           cp "$WASM_PATH" web-out/
-
-      - name: Copy assets
-        run: |
-          if [ -d "assets" ]; then
-            cp -r assets web-out/
-          fi
 
       - name: Copy Github web assets
         run: |
