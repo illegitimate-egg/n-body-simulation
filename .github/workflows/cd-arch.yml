@@ -15,10 +15,8 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - uses: michaelklishin/rust-build-package-release-action@v2
-        id: validate
-        with:
-          command: validate-version
+      - id: validate
+        run: echo "version=$(git rev-parse --short ${{ github.sha }})" >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate
