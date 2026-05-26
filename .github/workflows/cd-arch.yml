@@ -9,7 +9,19 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: michaelklishin/rust-build-package-release-action@v2
+        id: validate
+        with:
+          command: validate-version
+
   build:
+    needs: validate
     strategy:
       matrix:
         include:
@@ -46,7 +58,7 @@ jobs:
           path: target/${{ matrix.target }}/release/*
 
   release:
-      needs: [build]
+      needs: [validate, build]
       runs-on: ubuntu-latest
       steps:
       - uses: actions/checkout@v4
