@@ -70,3 +70,5 @@ jobs:
         with:
           body: "Autobuild latest commit"
           files: release/*
+          tag_name: ${{ steps.validate.outputs.version }}
+          generate_release_notes: true
