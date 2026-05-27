@@ -128,6 +128,30 @@ impl Objects {
         self.velocity_y = shrunk_velocity_y;
         self.mass = shrunk_mass;
     }
+
+    pub fn total_momentum(&self) -> Vec2 {
+        let mut momentum = Vec2::ZERO;
+
+        for i in 0..self.len() {
+            momentum.x += self.mass[i] * self.velocity_x[i];
+            momentum.y += self.mass[i] * self.velocity_y[i];
+        }
+
+        momentum
+    }
+
+    pub fn total_kinetic_energy(&self) -> f32 {
+        let mut kinetic_energy = 0.0;
+
+        for i in 0..self.len() {
+            let velocity_squared =
+                self.velocity_x[i] * self.velocity_x[i] + self.velocity_y[i] + self.velocity_y[i];
+
+            kinetic_energy += 0.5 * self.mass[i] * velocity_squared;
+        }
+
+        kinetic_energy
+    }
 }
 
 enum Mode {
@@ -165,6 +189,11 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    // LaTeX maths font available at https://svn.tug.org:8369/texlive/trunk/Master/texmf-dist/fonts/opentype/public/lm/lmmath.otf?revision=23153&pathrev=23153&view=markup
+    let maths_font =
+        load_ttf_font_from_bytes(include_bytes!("../fonts/lmmath-regular.otf.ttf")).unwrap();
+    set_default_font(maths_font);
+
     let mut state = State {
         objects: Objects::new(3), // 3 body problem
         ut: 0.0,
@@ -284,6 +313,30 @@ async fn main() {
             format! {"{}x zoom", state.camera_controller.camera.zoom},
             20.0,
             500.0,
+            20.0,
+            DARKGRAY,
+        );
+
+        let momentum = state.objects.total_momentum();
+        draw_text(
+            format! {"Σp = ({:.5e}, {:.5e})kgms^-1", momentum.x, momentum.y},
+            20.0,
+            200.0,
+            20.0,
+            DARKGRAY,
+        );
+        draw_text(
+            format! {"|Σp| = {:.5e}kgms^-1", momentum.length()},
+            20.0,
+            220.0,
+            20.0,
+            DARKGRAY,
+        );
+
+        draw_text(
+            format! {"ΣE_k = {:.5e}J", state.objects.total_kinetic_energy()},
+            20.0,
+            240.0,
             20.0,
             DARKGRAY,
         );
