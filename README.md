@@ -5,8 +5,7 @@ Yoshida Fourth Order integrator with poopy ui and SIMD support (how nice).
 Note that the webassembly version uses scalar functions instead of SIMD.
 
 TODO:
-- [ ] Fix past line being foolish when simulating forwards
-
+- [ ] Make it look less like shit
 
 ## Why are the releases shit? (Especially when that's how you get to the juicy simd)?
 1. mans cba styl, icl 

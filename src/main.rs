@@ -4,7 +4,7 @@ use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
     phys::{Predictor, Y4Integrator},
-    ui::{CTXMenu, CameraController},
+    ui::{CTXMenu, CameraController, DPAllocations},
 };
 
 mod phys;
@@ -22,12 +22,14 @@ struct State {
     fw_orbit_line_fade: bool,
 
     future_predictor: Option<Predictor>,
+    fw_pred_d_allocs: Option<DPAllocations>,
 
     predict_past: bool,
     bw_predict_d_epoch: f32,
     bw_orbit_line_fade: bool,
 
     past_predictor: Option<Predictor>,
+    bw_pred_d_allocs: Option<DPAllocations>,
 
     prediction_dirty: bool,
 
@@ -174,11 +176,13 @@ async fn main() {
         fw_predict_d_epoch: 20.0,
         fw_orbit_line_fade: false,
         future_predictor: None,
+        fw_pred_d_allocs: None,
 
         predict_past: false,
         bw_predict_d_epoch: 20.0,
         bw_orbit_line_fade: true,
         past_predictor: None,
+        bw_pred_d_allocs: None,
 
         prediction_dirty: true,
 

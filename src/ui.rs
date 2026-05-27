@@ -107,8 +107,14 @@ pub fn draw_objects(objects: &Objects) {
     }
 }
 
-// TODO: REUSE BUFFERS
+// Fixed allocations for draw_prediction
+pub struct DPAllocations {
+    colors: Box<[Color]>,
+    path_data: Box<[Vec2]>,
+}
+
 pub fn draw_prediction(
+    allocations: &mut DPAllocations,
     prediction: &VecDeque<Vec2>,
     num_objects: usize,
     num_steps: usize,
@@ -119,20 +125,20 @@ pub fn draw_prediction(
         return;
     }
 
-    let mut colors: Box<[Color]> = vec![color; num_steps].into_boxed_slice();
+    allocations.colors.fill(color);
+
     if fade {
         for step in 1..num_steps {
-            colors[step].a = 1.0 - (step as f32 / num_steps as f32);
+            allocations.colors[step].a = 1.0 - (step as f32 / num_steps as f32);
         }
     }
 
-    let mut path_data: Box<[Vec2]> = vec![Vec2::ZERO; num_steps].into_boxed_slice();
     for obj_idx in 0..num_objects {
         for step in 0..num_steps {
-            path_data[step] = prediction[step * num_objects + obj_idx];
+            allocations.path_data[step] = prediction[step * num_objects + obj_idx];
         }
 
-        draw_path(&path_data, 3.0 / 1000.0, &colors);
+        draw_path(&allocations.path_data, 3.0 / 1000.0, &allocations.colors);
     }
 }
 
@@ -472,8 +478,15 @@ pub fn draw(state: &mut State) {
                 state.fixed_dt,
                 state.objects.len(),
             );
+
+            state.fw_pred_d_allocs = Some(DPAllocations {
+                // The color given here is actually completely irrelevent
+                colors: vec![GREEN; state.objects.len() * max_steps].into_boxed_slice(),
+                path_data: vec![Vec2::ZERO; max_steps].into_boxed_slice(),
+            });
         } else {
             state.future_predictor = None;
+            state.fw_pred_d_allocs = None;
         }
         if state.predict_past {
             let max_steps = (state.bw_predict_d_epoch / state.fixed_dt).round() as usize;
@@ -491,14 +504,22 @@ pub fn draw(state: &mut State) {
                 -state.fixed_dt,
                 state.objects.len(),
             ); // This simulation leaves the terminal, ready to be rolled
+            //
+            state.bw_pred_d_allocs = Some(DPAllocations {
+                colors: vec![RED; state.objects.len() * max_steps].into_boxed_slice(),
+                path_data: vec![Vec2::ZERO; max_steps].into_boxed_slice(),
+            });
         } else {
             state.past_predictor = None;
+            state.bw_pred_d_allocs = None;
         }
         state.prediction_dirty = false;
     }
 
     if let Some(pred) = &state.future_predictor {
+        let allocs = state.fw_pred_d_allocs.as_mut().unwrap();
         draw_prediction(
+            allocs,
             &pred.path,
             pred.objects.len(),
             pred.max_steps,
@@ -507,7 +528,9 @@ pub fn draw(state: &mut State) {
         );
     }
     if let Some(pred) = &state.past_predictor {
+        let allocs = state.bw_pred_d_allocs.as_mut().unwrap();
         draw_prediction(
+            allocs,
             &pred.path,
             pred.objects.len(),
             pred.max_steps,
