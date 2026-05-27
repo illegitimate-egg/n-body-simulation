@@ -245,7 +245,7 @@ async fn main() {
                         pred.advance(&mut state.y4_integrator, signed_dt, state.objects.len());
                     }
                     if let Some(pred) = state.past_predictor.as_mut() {
-                        pred.advance(&mut state.y4_integrator, -signed_dt, state.objects.len());
+                        pred.advance(&mut state.y4_integrator, signed_dt, state.objects.len());
                     }
 
                     state.ut += signed_dt;

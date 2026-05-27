@@ -476,7 +476,7 @@ pub fn draw(state: &mut State) {
             state.future_predictor = None;
         }
         if state.predict_past {
-            let max_steps = (state.fw_predict_d_epoch / state.fixed_dt).round() as usize;
+            let max_steps = (state.bw_predict_d_epoch / state.fixed_dt).round() as usize;
             state.past_predictor = Some(Predictor {
                 objects: state.objects.clone(),
                 objects_terminal: state.objects.clone(),
