@@ -54,7 +54,7 @@ jobs:
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
-          targets: $({ matrix.target })
+          targets: ${{ matrix.target }}
           
       - name: Install Linux deps
         if: runner.os == 'Linux'
@@ -77,7 +77,7 @@ jobs:
             ${{ matrix.artifact_name }}.tar.gz \
             dist
             
-      - name: Prepare artifact (windows)      
+      - name: Prepare artifact (Windows)      
         if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -110,7 +110,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Build wasm
-        run: cargo build --profile dist --target wasm32-unknown-unknown
+        run: cargo +stable build --profile dist --target wasm32-unknown-unknown
 
       - name: Prepare web bundle
         run: |
