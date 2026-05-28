@@ -1,6 +1,6 @@
 [package]
 name = "butt-gravity"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 
 [dependencies]
@@ -8,3 +8,14 @@ egui = "0.31.1"
 egui-macroquad = "0.17.3"
 macroquad = "0.4.14"
 physical_constants = "0.5.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dist]
+inherits = "release"
+incremental = false

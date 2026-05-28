@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>n-body gravs</title>
+    <style>
+        html, body, canvas {
+            margin: 0px;
+            padding: 0px;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            position: absolute;
+            background: black;
+            z-index: 0;
+        }
+    </style>
+    </head>
+    <body>
+        <canvas id="glcanvas" tabindex='1'></canvas>
+        <script src="assets/mq_js_bundle.js"></script>
+        <script src="assets/quad-url.js"></script>
+        <script src="assets/sapp_jsutils.js"></script>
+        <script src="assets/butt-gravity.js"></script>
+        <script>load("butt-gravity.wasm");</script>
+    </body>
+</html>
