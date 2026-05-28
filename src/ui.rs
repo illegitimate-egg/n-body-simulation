@@ -16,6 +16,7 @@ pub struct CTXMenu {
 
 pub struct CameraController {
     pub camera: Camera2D,
+    zoom_level: f32,
     dragging: bool,
     last_mouse: Vec2,
 }
@@ -28,6 +29,8 @@ impl CameraController {
                 target: vec2(0.0, 0.0),
                 ..Default::default()
             },
+            // x zoom
+            zoom_level: 2.0 / screen_width() * 200.0,
             dragging: false,
             last_mouse: mouse_position().into(),
         }
@@ -79,12 +82,10 @@ impl CameraController {
             let zoom_factor = if scroll_y > 0.0 { 1.1 } else { 0.9 };
 
             // Apply zoom
-            self.camera.zoom *= zoom_factor;
+            self.zoom_level *= zoom_factor;
 
             // Clamp zoom
-            self.camera.zoom.x = self.camera.zoom.x.clamp(0.0005, 10.0);
-
-            self.camera.zoom.y = self.camera.zoom.x * -(screen_width() / screen_height()); // Recompute y
+            self.zoom_level = self.zoom_level.clamp(0.0005, 10.0);
 
             // World position AFTER zoom
             let world_after = self.camera.screen_to_world(mouse_screen);
@@ -92,6 +93,13 @@ impl CameraController {
             // Move camera target so cursor stays fixed on same world point
             self.camera.target += world_before - world_after;
         }
+
+        self.compute_zoom();
+    }
+
+    fn compute_zoom(&mut self) {
+        self.camera.zoom.x = self.zoom_level;
+        self.camera.zoom.y = self.zoom_level * -(screen_width() / screen_height());
     }
 }
 
