@@ -87,6 +87,9 @@ impl CameraController {
             // Clamp zoom
             self.zoom_level = self.zoom_level.clamp(0.0005, 10.0);
 
+            // Compute zoom to work out where to move to
+            self.compute_zoom();
+
             // World position AFTER zoom
             let world_after = self.camera.screen_to_world(mouse_screen);
 
