@@ -1,4 +1,5 @@
 #![cfg_attr(not(target_arch = "wasm32"), feature(portable_simd))]
+#![windows_subsystem = "windows"]
 
 use macroquad::{conf::Conf, prelude::*};
 
