@@ -34,6 +34,7 @@ jobs:
             archive: tar.gz
             artifact_name: butt-gravity-macos-arm64
             rustflags: "-C target-cpu=generic"
+            macos_deployment_target: "11.0"
 
           - os: macos-14
             target: x86_64-apple-darwin
@@ -58,7 +59,7 @@ jobs:
           
       - name: Install Linux deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && apt-get install -y libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
         
       - name: Build
         run: cargo build --profile dist --target ${{ matrix.target }}
