@@ -61,7 +61,7 @@ jobs:
         run: sudo apt-get update && apt-get install -y libasound2-dev
         
       - name: Build
-        run: cargo build --profile dist --target $({ matrix.target })
+        run: cargo build --profile dist --target ${{ matrix.target }}
         
       - name: Prepare artifact (Unix)
         if: runner.os != 'Windows'
@@ -134,7 +134,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: github-pages
-          path: pages
+          path: web-dist
           
   deploy-pages:
     needs: build-web
