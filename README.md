@@ -8,6 +8,7 @@ Note possible major performance increase if you compile locally.
 TODO:
 - [ ] Make it look less like shit
 - [ ] Seperate main sources out into smaller files
+- [ ] Fix gigantanormous workload when inserting and removing objects
 
 ## Features
 - Yoshida 4th order integration for trying to maintain constant K_e efficiently

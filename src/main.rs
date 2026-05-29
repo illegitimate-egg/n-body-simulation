@@ -146,7 +146,7 @@ impl Objects {
 
         for i in 0..self.len() {
             let velocity_squared =
-                self.velocity_x[i] * self.velocity_x[i] + self.velocity_y[i] + self.velocity_y[i];
+                self.velocity_x[i] * self.velocity_x[i] + self.velocity_y[i] * self.velocity_y[i];
 
             kinetic_energy += 0.5 * self.mass[i] * velocity_squared;
         }
