@@ -4,179 +4,19 @@
 use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
-    phys::{Predictor, Y4Integrator},
-    ui::{CTXMenu, CameraController, DPAllocations},
+    objects::Objects,
+    phys::Y4Integrator,
+    render::draw_objects,
+    state::{Mode, MouseStatus, State},
+    ui::camera::CameraController,
 };
 
+mod objects;
 mod phys;
+mod platform;
+mod render;
+mod state;
 mod ui;
-
-struct State {
-    objects: Objects,
-    ut: f32,
-
-    mode: Mode,
-    time_multiplier: f32,
-
-    predict_future: bool,
-    fw_predict_d_epoch: f32,
-    fw_orbit_line_fade: bool,
-
-    future_predictor: Option<Predictor>,
-    fw_pred_d_allocs: Option<DPAllocations>,
-
-    predict_past: bool,
-    bw_predict_d_epoch: f32,
-    bw_orbit_line_fade: bool,
-
-    past_predictor: Option<Predictor>,
-    bw_pred_d_allocs: Option<DPAllocations>,
-
-    prediction_dirty: bool,
-
-    mouse_state: MouseStatus,
-
-    ctx_menu: Option<CTXMenu>,
-
-    camera_controller: CameraController,
-
-    y4_integrator: Y4Integrator,
-    physics_accumulator: f32,
-    fixed_dt: f32,
-}
-
-#[derive(Debug, Default, Clone)]
-struct Objects {
-    position_x: Box<[f32]>,
-    position_y: Box<[f32]>,
-
-    velocity_x: Box<[f32]>,
-    velocity_y: Box<[f32]>,
-
-    mass: Box<[f32]>,
-}
-
-impl Objects {
-    pub fn new(number_of_initial_bodies: usize) -> Objects {
-        Objects {
-            position_x: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
-            position_y: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
-            velocity_x: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
-            velocity_y: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
-            mass: vec![0.0; number_of_initial_bodies].into_boxed_slice(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.mass.len()
-    }
-
-    pub fn insert_object(&mut self, position: Vec2, velocity: Vec2, mass: f32) {
-        let mut expanded_position_x = vec![0.0; self.len() + 1].into_boxed_slice();
-        let mut expanded_position_y = vec![0.0; self.len() + 1].into_boxed_slice();
-        let mut expanded_velocity_x = vec![0.0; self.len() + 1].into_boxed_slice();
-        let mut expanded_velocity_y = vec![0.0; self.len() + 1].into_boxed_slice();
-        let mut expanded_mass = vec![0.0; self.len() + 1].into_boxed_slice();
-
-        for i in 0..self.len() {
-            expanded_position_x[i] = self.position_x[i];
-            expanded_position_y[i] = self.position_y[i];
-            expanded_velocity_x[i] = self.velocity_x[i];
-            expanded_velocity_y[i] = self.velocity_y[i];
-            expanded_mass[i] = self.mass[i];
-        }
-
-        expanded_position_x[self.len()] = position.x;
-        expanded_position_y[self.len()] = position.y;
-        expanded_velocity_x[self.len()] = velocity.x;
-        expanded_velocity_y[self.len()] = velocity.y;
-        expanded_mass[self.len()] = mass;
-
-        self.position_x = expanded_position_x;
-        self.position_y = expanded_position_y;
-        self.velocity_x = expanded_velocity_x;
-        self.velocity_y = expanded_velocity_y;
-        self.mass = expanded_mass;
-    }
-
-    // Just realloc and shift stuff around so the target doesn't exist anymore
-    pub fn remove_object(&mut self, idx: usize) {
-        let mut shrunk_position_x = vec![0.0; self.len() - 1].into_boxed_slice();
-        let mut shrunk_position_y = vec![0.0; self.len() - 1].into_boxed_slice();
-        let mut shrunk_velocity_x = vec![0.0; self.len() - 1].into_boxed_slice();
-        let mut shrunk_velocity_y = vec![0.0; self.len() - 1].into_boxed_slice();
-        let mut shrunk_mass = vec![0.0; self.len() - 1].into_boxed_slice();
-
-        for i in 0..idx {
-            shrunk_position_x[i] = self.position_x[i];
-            shrunk_position_y[i] = self.position_y[i];
-            shrunk_velocity_x[i] = self.velocity_x[i];
-            shrunk_velocity_y[i] = self.velocity_y[i];
-            shrunk_mass[i] = self.mass[i];
-        }
-
-        for i in idx + 1..self.len() {
-            shrunk_position_x[i - 1] = self.position_x[i];
-            shrunk_position_y[i - 1] = self.position_y[i];
-            shrunk_velocity_x[i - 1] = self.velocity_x[i];
-            shrunk_velocity_y[i - 1] = self.velocity_y[i];
-            shrunk_mass[i - 1] = self.mass[i];
-        }
-
-        self.position_x = shrunk_position_x;
-        self.position_y = shrunk_position_y;
-        self.velocity_x = shrunk_velocity_x;
-        self.velocity_y = shrunk_velocity_y;
-        self.mass = shrunk_mass;
-    }
-
-    pub fn total_momentum(&self) -> Vec2 {
-        let mut momentum = Vec2::ZERO;
-
-        for i in 0..self.len() {
-            momentum.x += self.mass[i] * self.velocity_x[i];
-            momentum.y += self.mass[i] * self.velocity_y[i];
-        }
-
-        momentum
-    }
-
-    pub fn total_kinetic_energy(&self) -> f32 {
-        let mut kinetic_energy = 0.0;
-
-        for i in 0..self.len() {
-            let velocity_squared =
-                self.velocity_x[i] * self.velocity_x[i] + self.velocity_y[i] * self.velocity_y[i];
-
-            kinetic_energy += 0.5 * self.mass[i] * velocity_squared;
-        }
-
-        kinetic_energy
-    }
-}
-
-enum Mode {
-    Simulating,
-    Paused,
-}
-
-#[derive(Debug, PartialEq)]
-enum MouseStatus {
-    Released,
-    Dragging(usize), // I have blood on my hands
-    Held,
-    Creating,
-    CreatingStart,
-}
-
-impl Mode {
-    fn status(&self) -> String {
-        match &self {
-            Mode::Simulating => "SIMULATING".to_string(),
-            Mode::Paused => "PAUSED".to_string(),
-        }
-    }
-}
 
 fn window_conf() -> Conf {
     Conf {
@@ -291,7 +131,7 @@ async fn main() {
             Mode::Paused => {}
         }
 
-        ui::draw_objects(&state.objects);
+        draw_objects(&state.objects);
 
         set_default_camera(); // Switch to screenspace rendering
 
