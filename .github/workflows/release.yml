@@ -20,26 +20,26 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
-            artifact_name: butt-gravity-linux-x64
+            artifact_name: polaris-linux-x64
             rustflags: "-C target-cpu=x86-64-v2"
 
           - os: windows-2022
             target: x86_64-pc-windows-msvc
             archive: zip
-            artifact_name: butt-gravity-windows-x64
+            artifact_name: polaris-windows-x64
             rustflags: "-C target-cpu=x86-64-v2"
 
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
-            artifact_name: butt-gravity-macos-arm64
+            artifact_name: polaris-macos-arm64
             rustflags: "-C target-cpu=generic"
             macos_deployment_target: "11.0"
 
           - os: macos-14
             target: x86_64-apple-darwin
             archive: tar.gz
-            artifact_name: butt-gravity-macos-x64
+            artifact_name: polaris-macos-x64
             rustflags: "-C target-cpu=x86-64"
             macos_deployment_target: "11.0"
 
@@ -69,7 +69,7 @@ jobs:
         run: |
           mkdir dist
           
-          cp target/${{ matrix.target }}/dist/butt-gravity dist/
+          cp target/${{ matrix.target }}/dist/polaris dist/
           
           cp README.md dist/
           cp LICENSE.md dist/
@@ -84,7 +84,7 @@ jobs:
         run: |
           mkdir dist
 
-          copy target\${{ matrix.target }}\dist\butt-gravity.exe dist\
+          copy target\${{ matrix.target }}\dist\polaris.exe dist\
           copy README.md dist\
           copy LICENSE.md dist\
 
@@ -117,19 +117,19 @@ jobs:
         run: |
           mkdir web-dist
 
-          cp target/wasm32-unknown-unknown/dist/butt-gravity.wasm web-dist/
+          cp target/wasm32-unknown-unknown/dist/polaris.wasm web-dist/
           cp web/index.html web-dist/
 
           mkdir web-dist/assets
           cp -r web/assets/* web-dist/assets/
 
           cd web-dist
-          zip -r ../butt-gravity-web.zip .
+          zip -r ../polaris-web.zip .
 
       - name: Upload web release
         uses: softprops/action-gh-release@v2
         with:
-          files: butt-gravity-web.zip
+          files: polaris-web.zip
 
       - name: Upload pages artifact
         uses: actions/upload-artifact@v4
