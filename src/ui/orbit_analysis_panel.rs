@@ -1,4 +1,4 @@
-use egui::Checkbox;
+use egui::{Checkbox, RichText};
 
 use crate::{phys::orbit_analysis, state::State};
 
@@ -8,77 +8,112 @@ fn format_f32_option(input: Option<f32>) -> String {
         .unwrap_or_else(|| "N/A".to_string())
 }
 
+fn data_row(ui: &mut egui::Ui, string_1: &'static str, string_2: String) {
+    ui.label(string_1);
+    ui.label(string_2);
+    ui.end_row();
+}
+
 pub fn draw_orbit_analysis_panel(ui_ctx: &egui::Context, state: &mut State) {
-    egui::Window::new("Orbit Analysis").show(ui_ctx, |ui| {
-        // We should use a monospace font
-        // 14.0pts is the default egui font size
-        ui.style_mut().text_styles.insert(
-            egui::TextStyle::Body, egui::FontId::new(14.0, egui::FontFamily::Monospace),
-        );
+    egui::Window::new("Orbit Analysis").vscroll(true).show(ui_ctx, |ui| {
+        // Use monospace as a fallback font since it has superscript minus (U+207B)
+        let mut fonts = egui::FontDefinitions::default();
+        if let Some(monospace_fonts) = fonts.families.get(&egui::FontFamily::Monospace) {
+            let mono_fallback_names = monospace_fonts.clone();
 
-        if state.analysis_enabled {
-            state.orbit_analysis_result = orbit_analysis::OrbitAnalysisResult::analyse_orbits(
-                &state.objects,
-                state.analysis_secondary,
-            );
-
-            if let Some(orbit_analysis) = &state.orbit_analysis_result {
-                ui.label("Body information:");
-                ui.label(format!("Selected Secondary: {}", orbit_analysis.secondary));
-                ui.label(format!("Computed Primary:   {}", orbit_analysis.primary));
-                ui.label(format!("Orbit Modality:     {}", orbit_analysis.orbit_type.to_string()));
-
-                ui.separator();
-                ui.label("Basic information:");
-                ui.label(format!("Altitude (m):                       {}", orbit_analysis.altitude));
-                ui.label(format!("Orbital Speed (ms^-1):              {}", orbit_analysis.orbital_speed));
-                ui.label(format!("Computed Escape Velocity (ms^-1):   {}", orbit_analysis.escape_velocity));
-                ui.label(format!("Computed Circular Velocity (ms^-1): {}", orbit_analysis.circular_velocity));
-                ui.label(format!("Speed relative to escape:           {}x", orbit_analysis.speed_relative_to_escape));
-                ui.label(format!("Speed relative to circular:         {}x", orbit_analysis.speed_relative_to_circular));
-
-                ui.separator();
-                ui.label("Keplerian Orbit Information:");
-                ui.label(format!("Apoapsis (m):              {}", format_f32_option(orbit_analysis.apoapsis)));
-                ui.label(format!("Time to Apoapsis (s):      {}", format_f32_option(orbit_analysis.ap_time)));
-                ui.label(format!("Periapsis (m):             {}", orbit_analysis.periapsis));
-                ui.label(format!("Time to Periapsis (s):     {}", format_f32_option(orbit_analysis.pe_time)));
-                ui.label(format!("Argument of Periapsis (ω): {}", orbit_analysis.argument_of_periapsis));
-                ui.label(format!("Osculating period (s):     {}", orbit_analysis.period));
-                ui.label(format!("Semi-Major Axis (m):       {}", orbit_analysis.SMA));
-                ui.label(format!("Semi-minor Axis (m):       {}", orbit_analysis.SmA));
-                ui.label(format!("Eccentricity [Magnitude]:  {}", orbit_analysis.eccentricity));
-                ui.label(format!("Eccentricity [Vector]:     {}", orbit_analysis.eccentricity_vector));
-                ui.label(format!("True Anomaly:              {}", orbit_analysis.true_anomaly));
-                ui.label(format!("Mean Motion:               {}", format_f32_option(orbit_analysis.mean_motion)));
-
-                // TODO: Add ability to draw conic based on keplerian analysis
-                ui.add_enabled(false, Checkbox::new(&mut false, "Draw Kepler conic [INOP]"));
-
-                ui.separator();
-                ui.label("Miscellaneous:");
-                ui.label(format!("Specific Energy (J):            {}", orbit_analysis.specific_energy));
-                ui.label(format!("Specific Angular Momentum (Js): {}", orbit_analysis.specific_angular_momentum));
-                ui.label(format!("Radial Velocity (ms^-1):        {}", orbit_analysis.radial_velocity));
-
-                ui.separator();
-                ui.collapsing("Analysis Information", |ui| {
-                    ui.label("Candidate score is the measure the orbit analyser uses to dertermine the orbital primary. The body with the lowest score is picked (or if two bodies have the same score the one with the lower index) is picked for analysis. Score is based on several factors. For bound orbits it's the osculating period divided by 100. If the orbit is unbound the distance to the secondary is used as the score");
-                    ui.label("Possible Primary Scores:");
-                        ui.horizontal(|ui| {
-                            ui.label("Body Index:");
-                            ui.label("Body Score:");
-                        });
-                    for primary_candidate_score in &orbit_analysis.primary_candidate_scores {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}", primary_candidate_score.0));
-                            ui.label(format!("{}", primary_candidate_score.1));
-                        });
+            if let Some(proportional_fonts) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                for font_name in mono_fallback_names {
+                    if !proportional_fonts.contains(&font_name) {
+                        proportional_fonts.push(font_name);
                     }
-                });
-            } else {
-                println!("No analysis/Computing...");
+                }
             }
         }
+        ui_ctx.set_fonts(fonts);
+
+        // This is a giant grid
+        let ui_builder = egui::UiBuilder::new();
+        ui.scope_builder(ui_builder, |ui| {
+            egui::Grid::new("orbit_grid").num_columns(2).spacing([20.0, 4.0]).striped(true).show(ui, |ui| {
+                if state.analysis_enabled {
+                    // TODO: Async this
+                    state.orbit_analysis_result = orbit_analysis::OrbitAnalysisResult::analyse_orbits(
+                        &state.objects,
+                        state.analysis_secondary,
+                    );
+
+                    if let Some(orbit_analysis) = &state.orbit_analysis_result {
+                        ui.label(RichText::new("Body information:").italics().size(20.0));
+                        ui.separator();
+                        ui.end_row();
+                        data_row(ui, "Selected Secondary", format!("{}", orbit_analysis.secondary));
+                        data_row(ui, "Computed Primary", format!("{}", orbit_analysis.primary));
+                        data_row(ui, "Orbit Modality", orbit_analysis.orbit_type.to_string().into());
+
+                        ui.end_row();
+                        ui.label(RichText::new("Basic information:").italics().size(20.0));
+                        ui.separator();
+                        ui.end_row();
+                        data_row(ui, "Altitude", format!("{} m", orbit_analysis.altitude));
+                        data_row(ui, "Orbital Speed", format!("{} ms⁻¹", orbit_analysis.orbital_speed));
+                        data_row(ui, "Computed Escape Velocity", format!("{} ms⁻¹", orbit_analysis.escape_velocity));
+                        data_row(ui, "Computed Circular Velocity", format!("{} ms⁻¹", orbit_analysis.circular_velocity));
+                        data_row(ui, "Speed relative to escape", format!("{}x", orbit_analysis.speed_relative_to_escape));
+                        data_row(ui, "Speed relative to circular", format!("{}x", orbit_analysis.speed_relative_to_circular));
+
+                        ui.end_row();
+                        ui.label(RichText::new("Keplerian Orbit Information:").italics().size(20.0));
+                        ui.separator();
+                        ui.end_row();
+                        data_row(ui, "Apoapsis", format!("{} m", format_f32_option(orbit_analysis.apoapsis)));
+                        data_row(ui, "Time to Apoapsis", format!("{} s", format_f32_option(orbit_analysis.ap_time)));
+                        data_row(ui, "Periapsis", format!("{} m", orbit_analysis.periapsis));
+                        data_row(ui, "Time to Periapsis", format!("{} s", format_f32_option(orbit_analysis.pe_time)));
+                        data_row(ui, "Argument of Periapsis (ω)", format!("{}", orbit_analysis.argument_of_periapsis));
+                        data_row(ui, "Osculating period", format!("{} s", orbit_analysis.period));
+                        data_row(ui, "Semi-Major Axis", format!("{} m", orbit_analysis.SMA));
+                        data_row(ui, "Semi-minor Axis", format!("{} m", orbit_analysis.SmA));
+                        data_row(ui, "Eccentricity [Magnitude]", format!("{}", orbit_analysis.eccentricity));
+                        data_row(ui, "Eccentricity [Vector]", format!("{}", orbit_analysis.eccentricity_vector));
+                        data_row(ui, "True Anomaly", format!("{}", orbit_analysis.true_anomaly));
+                        data_row(ui, "Mean Motion", format!("{}", format_f32_option(orbit_analysis.mean_motion)));
+
+                        // TODO: Add ability to draw conic based on keplerian analysis
+                        ui.add_enabled(false, Checkbox::new(&mut false, "Draw Kepler conic [INOP]"));
+                        ui.end_row();
+
+                        ui.label(RichText::new("Miscellaneous:").italics().size(20.0));
+                        ui.separator();
+                        ui.end_row();
+                        data_row(ui, "Specific Energy", format!("{} J", orbit_analysis.specific_energy));
+                        data_row(ui, "Specific Angular Momentum", format!("{} Js", orbit_analysis.specific_angular_momentum));
+                        data_row(ui, "Radial Velocity", format!("{} ms⁻¹", orbit_analysis.radial_velocity));
+
+                        ui.separator();
+                        ui.separator();
+                        ui.end_row();
+
+                        ui.collapsing("Analysis Information", |ui| {
+                            ui.label("Candidate score is the measure the orbit analyser uses to dertermine the orbital primary. The body with the lowest score is picked (or if two bodies have the same score the one with the lower index) is picked for analysis. Score is based on several factors. For bound orbits it's the osculating period divided by 100. If the orbit is unbound the distance to the secondary is used as the score");
+                            ui.label("Possible Primary Scores:");
+                                ui.horizontal(|ui| {
+                                    ui.label("Body Index:");
+                                    ui.label("Body Score:");
+                                });
+                                ui.end_row();
+                            for primary_candidate_score in &orbit_analysis.primary_candidate_scores {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("{}", primary_candidate_score.0));
+                                    ui.label(format!("{}", primary_candidate_score.1));
+                                });
+                                ui.end_row();
+                            }
+                        });
+                    } else {
+                        println!("No analysis/Computing...");
+                    }
+                }
+            })
+        });
     });
 }
