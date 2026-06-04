@@ -52,6 +52,9 @@ pub struct State {
     pub prediction_dirty: bool,
 
     pub orbit_analysis_result: Option<OrbitAnalysisResult>,
+    pub analysis_secondary: usize,
+    pub analysis_enabled: bool,
+    pub analysis_window_open: bool,
 
     pub mouse_state: MouseStatus,
 

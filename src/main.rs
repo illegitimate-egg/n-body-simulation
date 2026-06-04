@@ -5,7 +5,7 @@ use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
     objects::Objects,
-    phys::{Y4Integrator, orbit_analysis::OrbitAnalysisResult},
+    phys::Y4Integrator,
     render::draw_objects,
     state::{Mode, MouseStatus, State},
     ui::camera::CameraController,
@@ -36,37 +36,31 @@ async fn main() {
     set_default_font(maths_font);
 
     let mut state = State {
-        objects: Objects::new(3), // 3 body problem
+        objects: Objects::new(3),
         ut: 0.0,
-
         mode: Mode::Paused,
         time_multiplier: 1.0,
-
         predict_future: true,
         fw_predict_d_epoch: 20.0,
         fw_orbit_line_fade: false,
         future_predictor: None,
         fw_pred_d_allocs: None,
-
         predict_past: false,
         bw_predict_d_epoch: 20.0,
         bw_orbit_line_fade: true,
         past_predictor: None,
         bw_pred_d_allocs: None,
-
         prediction_dirty: true,
-
         orbit_analysis_result: None,
-
         mouse_state: MouseStatus::Released,
-
         ctx_menu: None,
-
         camera_controller: CameraController::new(),
-
         y4_integrator: Y4Integrator::new(3),
         physics_accumulator: 0.0,
         fixed_dt: 240.0f32.recip(),
+        analysis_secondary: 0,
+        analysis_enabled: true,
+        analysis_window_open: true,
     };
 
     // https://astronomy.stackexchange.com/questions/50297/initial-state-for-a-3-body-problem-to-create-figure-8-restricted-to-2d
@@ -183,14 +177,6 @@ async fn main() {
             20.0,
             DARKGRAY,
         );
-
-        for i in 0..state.objects.len() {
-            println!(
-                "Secondary {} orbital info {:?}",
-                i,
-                OrbitAnalysisResult::analyse_orbits(&state.objects, i)
-            );
-        }
 
         egui_macroquad::draw();
         next_frame().await;

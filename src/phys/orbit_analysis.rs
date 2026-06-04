@@ -1,7 +1,5 @@
 // Since SMA and SmA are unique vars this is really needed
 #![allow(non_snake_case)]
-#![allow(dead_code)]
-#![allow(unused_variables)]
 
 use std::f64::consts::PI;
 
@@ -55,52 +53,59 @@ pub struct OrbitAnalysisResult {
     /// performing our analysis on
     /// NOTE: OrbitAnalsysisResult should be invalidated if the state (specifically SoA objects)
     /// changes
-    primary: usize,
-    secondary: usize,
+    pub primary: usize,
+    pub secondary: usize,
+
+    pub altitude: f32,
+    pub orbital_speed: f32,
+    pub escape_velocity: f32,
+    pub circular_velocity: f32,
+    pub speed_relative_to_circular: f32,
+    pub speed_relative_to_escape: f32,
 
     /// Semi-Major Axis: Length of long side of the conic in metres
-    SMA: f32,
+    pub SMA: f32,
     /// Semi-minor Axis: Length of the short side of the conic in metres
-    SmA: f32,
+    pub SmA: f32,
 
     /// Osculating period
-    period: f32,
+    pub period: f32,
 
     /// Apoapsis and periapsis are to centre of body, since all bodies are simulated as point
     /// masses. Therefore a radius isn't available
-    apoapsis: Option<f32>,
-    periapsis: f32,
+    pub apoapsis: Option<f32>,
+    pub periapsis: f32,
 
     // Time to Ap or Pe
-    ap_time: Option<f32>,
-    pe_time: Option<f32>,
+    pub ap_time: Option<f32>,
+    pub pe_time: Option<f32>,
 
     /// ω
-    argument_of_periapsis: f32,
+    pub argument_of_periapsis: f32,
 
     /// Eccentricity describes the shape of the conic
     /// e = 0: Circular orbit
     /// 0 < e < 1: Elliptic orbit
     /// e = 1: Parabolic fly-by
     /// e > 1: Hyperbolic fly-by
-    eccentricity: f32,
-    eccentricity_vector: Vec2,
+    pub eccentricity: f32,
+    pub eccentricity_vector: Vec2,
 
-    specific_energy: f32,
-    specific_angular_momentum: f32,
+    pub specific_energy: f32,
+    pub specific_angular_momentum: f32,
 
-    radial_velocity: f32,
-    mean_motion: Option<f32>,
+    pub radial_velocity: f32,
+    pub mean_motion: Option<f32>,
 
-    orbit_type: OrbitType,
+    pub orbit_type: OrbitType,
 
     /// The angular position (phase) of the secondary in its cycle
-    true_anomaly: f32,
+    pub true_anomaly: f32,
 
     /// Stores a set of tuples containing the osculating period of the secondary around each
     /// possible primary. The lowest one is used.
     // TODO: Is this really necessary?
-    primary_candidate_scores: Box<[(usize, f32)]>,
+    pub primary_candidate_scores: Box<[(usize, f32)]>,
 }
 
 /// This is used to get computed values from the osculating period finder into the main calculation
@@ -108,11 +113,10 @@ pub struct OrbitAnalysisResult {
 struct StageOneInfo {
     mu: f32,
 
-    position_primary: Vec2,
-    velocity_primary: Vec2,
-    position_secondary: Vec2,
-    velocity_secondary: Vec2,
-
+    // position_primary: Vec2,
+    // velocity_primary: Vec2,
+    // position_secondary: Vec2,
+    // velocity_secondary: Vec2,
     relative_position: Vec2,
     relative_velocity: Vec2,
 
@@ -128,7 +132,7 @@ struct StageOneInfo {
 impl OrbitAnalysisResult {
     pub fn analyse_orbits(objects: &Objects, secondary: usize) -> Option<Self> {
         // Lower is better
-        let mut best_period = f32::MAX;
+        let mut best_score = f32::MAX;
         let mut best_primary = 0;
 
         // Tuple: Index, Osculating period
@@ -162,23 +166,25 @@ impl OrbitAnalysisResult {
             let orbital_energy = ((mag_vel * mag_vel) / 2.0) - (mu / mag_pos);
             let SMA = -mu / (2.0 * orbital_energy);
 
-            // This does grenade hyperbolae but this is called *orbit* analysis
-            if orbital_energy >= 0.0 {
-                continue;
-            }
-
             let osculating_period = 2.0 * PI as f32 * ((SMA * SMA * SMA) / mu).sqrt();
 
-            if osculating_period < best_period {
-                best_period = osculating_period;
+            let candidate_score = if orbital_energy < 0.0 {
+                // Bias the calculation to strongly perfer bound orbits
+                osculating_period / 100.0
+            } else {
+                mag_pos
+            };
+
+            if candidate_score < best_score {
+                best_score = candidate_score;
                 best_primary = primary;
 
                 s1 = Some(StageOneInfo {
                     mu,
-                    position_primary,
-                    velocity_primary,
-                    position_secondary,
-                    velocity_secondary,
+                    // position_primary,
+                    // velocity_primary,
+                    // position_secondary,
+                    // velocity_secondary,
                     relative_position,
                     relative_velocity,
                     mag_pos,
@@ -261,12 +267,19 @@ impl OrbitAnalysisResult {
 
             let radial_velocity = s1.relative_position.dot(s1.relative_velocity) / s1.mag_pos;
 
+            // Maybe these are toy values than being useful orbital values, but they're cool
+            // nontheless
+            let escape_velocity = ((2.0 * s1.mu) / s1.mag_pos).sqrt();
+            let circular_velocity = escape_velocity / 2.0f32.sqrt();
+            let speed_relative_to_circular = s1.mag_vel / circular_velocity;
+            let speed_relative_to_escape = s1.mag_vel / escape_velocity;
+
             Some(OrbitAnalysisResult {
                 primary: best_primary,
                 secondary,
                 SMA: s1.SMA,
                 SmA,
-                period: best_period,
+                period: s1.osculating_period,
                 apoapsis: Ap,
                 periapsis: Pe,
                 argument_of_periapsis: arg_pe,
@@ -281,6 +294,12 @@ impl OrbitAnalysisResult {
                 eccentricity_vector: eccentricity,
                 radial_velocity,
                 mean_motion: mean_motion_out,
+                altitude: s1.mag_pos,
+                orbital_speed: s1.mag_vel,
+                escape_velocity,
+                circular_velocity,
+                speed_relative_to_circular,
+                speed_relative_to_escape,
             })
         } else {
             None
