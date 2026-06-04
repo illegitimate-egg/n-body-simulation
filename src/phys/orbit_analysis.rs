@@ -10,6 +10,45 @@ use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
 
 use crate::objects::Objects;
 
+#[derive(Debug)]
+pub enum OrbitType {
+    Circular,
+    Elliptic,
+    Parabolic,
+    Hyperbolic,
+}
+
+impl OrbitType {
+    /// Input domain: e: e > 0, e ∈ ℝ
+    pub fn from_eccentricity(e: f32) -> Self {
+        if e < 0.0 {
+            panic!("Eccentricity cannot be negative");
+        }
+
+        let epsilon = 1e-5;
+
+        if e < epsilon {
+            OrbitType::Circular
+        } else if (e - 1.0).abs() < epsilon {
+            OrbitType::Parabolic
+        } else if e < 1.0 {
+            OrbitType::Elliptic
+        } else {
+            OrbitType::Hyperbolic
+        }
+    }
+
+    pub fn to_string(&self) -> &'static str {
+        match self {
+            OrbitType::Circular => "Circular orbit",
+            OrbitType::Elliptic => "Elliptic orbit",
+            OrbitType::Parabolic => "Parabolic fly-by",
+            OrbitType::Hyperbolic => "Hyperbolic fly-by",
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct OrbitAnalysisResult {
     /// The primary is the body being orbited, deduced using osculating period
     /// The secondary is the body that is orbiting the primary, it is also the body that we are
@@ -24,10 +63,17 @@ pub struct OrbitAnalysisResult {
     /// Semi-minor Axis: Length of the short side of the conic in metres
     SmA: f32,
 
+    /// Osculating period
+    period: f32,
+
     /// Apoapsis and periapsis are to centre of body, since all bodies are simulated as point
     /// masses. Therefore a radius isn't available
-    apoapsis: f32,
+    apoapsis: Option<f32>,
     periapsis: f32,
+
+    // Time to Ap or Pe
+    ap_time: Option<f32>,
+    pe_time: Option<f32>,
 
     /// ω
     argument_of_periapsis: f32,
@@ -38,46 +84,206 @@ pub struct OrbitAnalysisResult {
     /// e = 1: Parabolic fly-by
     /// e > 1: Hyperbolic fly-by
     eccentricity: f32,
+    eccentricity_vector: Vec2,
+
+    specific_energy: f32,
+    specific_angular_momentum: f32,
+
+    radial_velocity: f32,
+    mean_motion: Option<f32>,
+
+    orbit_type: OrbitType,
 
     /// The angular position (phase) of the secondary in its cycle
     true_anomaly: f32,
 
     /// Stores a set of tuples containing the osculating period of the secondary around each
     /// possible primary. The lowest one is used.
-    /// TODO: Is this really necessary?
+    // TODO: Is this really necessary?
     primary_candidate_scores: Box<[(usize, f32)]>,
 }
 
+/// This is used to get computed values from the osculating period finder into the main calculation
+/// body
+struct StageOneInfo {
+    mu: f32,
+
+    position_primary: Vec2,
+    velocity_primary: Vec2,
+    position_secondary: Vec2,
+    velocity_secondary: Vec2,
+
+    relative_position: Vec2,
+    relative_velocity: Vec2,
+
+    mag_pos: f32,
+    mag_vel: f32,
+
+    orbital_energy: f32,
+
+    SMA: f32,
+    osculating_period: f32,
+}
+
 impl OrbitAnalysisResult {
-    // pub fn analyse_orbits(objects: &Objects, secondary: usize) -> Self {}
+    pub fn analyse_orbits(objects: &Objects, secondary: usize) -> Option<Self> {
+        // Lower is better
+        let mut best_period = f32::MAX;
+        let mut best_primary = 0;
 
-    pub fn osculating_period(objects: &Objects, primary: usize, secondary: usize) -> Option<f32> {
-        let mu = NEWTONIAN_CONSTANT_OF_GRAVITATION as f32
-            * (objects.mass[primary] + objects.mass[secondary]);
+        // Tuple: Index, Osculating period
+        let mut primaries: Vec<(usize, f32)> = Vec::with_capacity(objects.len() - 1);
 
-        let position_primary = Vec2::new(objects.position_x[primary], objects.position_y[primary]);
-        let velocity_primary = Vec2::new(objects.velocity_x[primary], objects.velocity_y[primary]);
-        let position_secondary =
-            Vec2::new(objects.position_x[secondary], objects.position_y[secondary]);
-        let velocity_secondary =
-            Vec2::new(objects.velocity_x[secondary], objects.velocity_y[secondary]);
+        let mut s1: Option<StageOneInfo> = None;
 
-        let relative_position = position_secondary - position_primary;
-        let relative_velocity = velocity_secondary - velocity_primary;
+        for primary in 0..objects.len() {
+            if primary == secondary {
+                continue;
+            }
 
-        let mag_pos = relative_position.length();
-        let mag_vel = relative_velocity.length();
+            let mu = NEWTONIAN_CONSTANT_OF_GRAVITATION as f32
+                * (objects.mass[primary] + objects.mass[secondary]);
 
-        let mag_angular_momentum =
-            relative_position.x * relative_velocity.y - relative_position.y * relative_velocity.x;
+            let position_primary =
+                Vec2::new(objects.position_x[primary], objects.position_y[primary]);
+            let velocity_primary =
+                Vec2::new(objects.velocity_x[primary], objects.velocity_y[primary]);
+            let position_secondary =
+                Vec2::new(objects.position_x[secondary], objects.position_y[secondary]);
+            let velocity_secondary =
+                Vec2::new(objects.velocity_x[secondary], objects.velocity_y[secondary]);
 
-        let orbital_energy = ((mag_vel * mag_vel) / 2.0) - (mu / mag_pos);
-        let SMA = -mu / (2.0 * orbital_energy);
+            let relative_position = position_secondary - position_primary;
+            let relative_velocity = velocity_secondary - velocity_primary;
 
-        if orbital_energy >= 0.0 {
-            return None;
+            let mag_pos = relative_position.length();
+            let mag_vel = relative_velocity.length();
+
+            let orbital_energy = ((mag_vel * mag_vel) / 2.0) - (mu / mag_pos);
+            let SMA = -mu / (2.0 * orbital_energy);
+
+            // This does grenade hyperbolae but this is called *orbit* analysis
+            if orbital_energy >= 0.0 {
+                continue;
+            }
+
+            let osculating_period = 2.0 * PI as f32 * ((SMA * SMA * SMA) / mu).sqrt();
+
+            if osculating_period < best_period {
+                best_period = osculating_period;
+                best_primary = primary;
+
+                s1 = Some(StageOneInfo {
+                    mu,
+                    position_primary,
+                    velocity_primary,
+                    position_secondary,
+                    velocity_secondary,
+                    relative_position,
+                    relative_velocity,
+                    mag_pos,
+                    mag_vel,
+                    orbital_energy,
+                    SMA,
+                    osculating_period,
+                });
+            }
+
+            primaries.push((primary, osculating_period));
         }
 
-        Some(2.0 * PI as f32 * ((SMA * SMA * SMA) / mu).sqrt())
+        if let Some(s1) = s1 {
+            let mag_angular_momentum = s1.relative_position.x * s1.relative_velocity.y
+                - s1.relative_position.y * s1.relative_velocity.x;
+
+            // Calculating eccentricity
+            let eccentricity = Vec2::new(
+                s1.relative_velocity.y * mag_angular_momentum / s1.mu,
+                -s1.relative_velocity.x * mag_angular_momentum / s1.mu,
+            ) - s1.relative_position.normalize();
+
+            let mag_e = eccentricity.length();
+
+            let SmA = if mag_e < 1.0 {
+                s1.SMA * (1.0 - mag_e * mag_e).sqrt()
+            } else {
+                s1.SMA.abs() * (mag_e * mag_e - 1.0).sqrt()
+            };
+
+            let Ap = if mag_e < 1.0 {
+                Some(s1.SMA * (1.0 + mag_e))
+            } else {
+                None
+            };
+            let Pe = s1.SMA * (1.0 - mag_e);
+
+            let mut arg_pe = eccentricity.y.atan2(eccentricity.x);
+
+            let cos_nu = eccentricity.dot(s1.relative_position) / (mag_e * s1.mag_pos);
+
+            let mut true_anomaly = cos_nu.clamp(-1.0, 1.0).acos();
+
+            if mag_e < 1e-5 {
+                arg_pe = 0.0;
+                true_anomaly = s1.relative_position.y.atan2(s1.relative_position.x);
+            }
+
+            if s1.relative_position.dot(s1.relative_velocity) < 0.0 {
+                true_anomaly = 2.0 * std::f32::consts::PI - true_anomaly;
+            }
+
+            let mut time_to_ap = None;
+            let mut time_to_pe = None;
+
+            let mut mean_motion_out = None;
+
+            // Calculating to to Ap and time to pe
+            if mag_e < 1.0 {
+                let eccentric_anomaly = 2.0
+                    * (((1.0 - mag_e) / (1.0 + mag_e)).sqrt() * (true_anomaly / 2.0).tan()).atan();
+                let mean_anomaly = eccentric_anomaly - mag_e * eccentric_anomaly.sin();
+                let mean_motion = 2.0 * PI as f32 / s1.osculating_period;
+                mean_motion_out = Some(mean_motion);
+                let time_since_pe = mean_anomaly / mean_motion;
+                time_to_pe =
+                    Some((s1.osculating_period - time_since_pe).rem_euclid(s1.osculating_period));
+                time_to_ap = if mag_e < 1.0 {
+                    Some(if true_anomaly < PI as f32 {
+                        (s1.osculating_period * 0.5 - time_since_pe)
+                            .rem_euclid(s1.osculating_period)
+                    } else {
+                        1.5 * s1.osculating_period - time_since_pe
+                    })
+                } else {
+                    None
+                };
+            }
+
+            let radial_velocity = s1.relative_position.dot(s1.relative_velocity) / s1.mag_pos;
+
+            Some(OrbitAnalysisResult {
+                primary: best_primary,
+                secondary,
+                SMA: s1.SMA,
+                SmA,
+                period: best_period,
+                apoapsis: Ap,
+                periapsis: Pe,
+                argument_of_periapsis: arg_pe,
+                eccentricity: mag_e,
+                true_anomaly,
+                primary_candidate_scores: primaries.into(),
+                ap_time: time_to_ap,
+                pe_time: time_to_pe,
+                specific_energy: s1.orbital_energy,
+                specific_angular_momentum: mag_angular_momentum,
+                orbit_type: OrbitType::from_eccentricity(mag_e),
+                eccentricity_vector: eccentricity,
+                radial_velocity,
+                mean_motion: mean_motion_out,
+            })
+        } else {
+            None
+        }
     }
 }

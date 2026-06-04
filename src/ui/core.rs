@@ -9,8 +9,8 @@ use crate::{
 // Based on macroquad source
 pub fn draw(state: &mut State) {
     egui_macroquad::ui(|egui_ctx| {
-        simulation_panel(&egui_ctx, state);
-        draw_ctx_menu(&egui_ctx, state);
+        simulation_panel(egui_ctx, state);
+        draw_ctx_menu(egui_ctx, state);
     });
 
     handle_interaction(state);

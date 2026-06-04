@@ -184,11 +184,11 @@ async fn main() {
             DARKGRAY,
         );
 
-        for i in 1..state.objects.len() {
+        for i in 0..state.objects.len() {
             println!(
-                "Period of 0 about {}: {:?}",
+                "Secondary {} orbital info {:?}",
                 i,
-                OrbitAnalysisResult::osculating_period(&state.objects, i, 0)
+                OrbitAnalysisResult::analyse_orbits(&state.objects, i)
             );
         }
 
