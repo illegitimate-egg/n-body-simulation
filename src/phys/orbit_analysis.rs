@@ -1,5 +1,14 @@
 // Since SMA and SmA are unique vars this is really needed
 #![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
+use std::f64::consts::PI;
+
+use macroquad::math::Vec2;
+use physical_constants::NEWTONIAN_CONSTANT_OF_GRAVITATION;
+
+use crate::objects::Objects;
 
 pub struct OrbitAnalysisResult {
     /// The primary is the body being orbited, deduced using osculating period
@@ -32,4 +41,43 @@ pub struct OrbitAnalysisResult {
 
     /// The angular position (phase) of the secondary in its cycle
     true_anomaly: f32,
+
+    /// Stores a set of tuples containing the osculating period of the secondary around each
+    /// possible primary. The lowest one is used.
+    /// TODO: Is this really necessary?
+    primary_candidate_scores: Box<[(usize, f32)]>,
+}
+
+impl OrbitAnalysisResult {
+    // pub fn analyse_orbits(objects: &Objects, secondary: usize) -> Self {}
+
+    pub fn osculating_period(objects: &Objects, primary: usize, secondary: usize) -> Option<f32> {
+        let mu = NEWTONIAN_CONSTANT_OF_GRAVITATION as f32
+            * (objects.mass[primary] + objects.mass[secondary]);
+
+        let position_primary = Vec2::new(objects.position_x[primary], objects.position_y[primary]);
+        let velocity_primary = Vec2::new(objects.velocity_x[primary], objects.velocity_y[primary]);
+        let position_secondary =
+            Vec2::new(objects.position_x[secondary], objects.position_y[secondary]);
+        let velocity_secondary =
+            Vec2::new(objects.velocity_x[secondary], objects.velocity_y[secondary]);
+
+        let relative_position = position_secondary - position_primary;
+        let relative_velocity = velocity_secondary - velocity_primary;
+
+        let mag_pos = relative_position.length();
+        let mag_vel = relative_velocity.length();
+
+        let mag_angular_momentum =
+            relative_position.x * relative_velocity.y - relative_position.y * relative_velocity.x;
+
+        let orbital_energy = ((mag_vel * mag_vel) / 2.0) - (mu / mag_pos);
+        let SMA = -mu / (2.0 * orbital_energy);
+
+        if orbital_energy >= 0.0 {
+            return None;
+        }
+
+        Some(2.0 * PI as f32 * ((SMA * SMA * SMA) / mu).sqrt())
+    }
 }

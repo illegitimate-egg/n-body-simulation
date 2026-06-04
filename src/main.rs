@@ -5,7 +5,7 @@ use macroquad::{conf::Conf, prelude::*};
 
 use crate::{
     objects::Objects,
-    phys::Y4Integrator,
+    phys::{Y4Integrator, orbit_analysis::OrbitAnalysisResult},
     render::draw_objects,
     state::{Mode, MouseStatus, State},
     ui::camera::CameraController,
@@ -183,6 +183,14 @@ async fn main() {
             20.0,
             DARKGRAY,
         );
+
+        for i in 1..state.objects.len() {
+            println!(
+                "Period of 0 about {}: {:?}",
+                i,
+                OrbitAnalysisResult::osculating_period(&state.objects, i, 0)
+            );
+        }
 
         egui_macroquad::draw();
         next_frame().await;
