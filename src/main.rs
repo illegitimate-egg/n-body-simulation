@@ -56,6 +56,8 @@ async fn main() {
 
         prediction_dirty: true,
 
+        orbit_analysis_result: None,
+
         mouse_state: MouseStatus::Released,
 
         ctx_menu: None,

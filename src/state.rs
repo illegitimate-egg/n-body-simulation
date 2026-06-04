@@ -1,6 +1,6 @@
 use crate::{
     objects::Objects,
-    phys::{Predictor, Y4Integrator},
+    phys::{Predictor, Y4Integrator, orbit_analysis::OrbitAnalysisResult},
     render::DPAllocations,
     ui::{camera::CameraController, context_menu::CTXMenu},
 };
@@ -50,6 +50,8 @@ pub struct State {
     pub bw_pred_d_allocs: Option<DPAllocations>,
 
     pub prediction_dirty: bool,
+
+    pub orbit_analysis_result: Option<OrbitAnalysisResult>,
 
     pub mouse_state: MouseStatus,
 
