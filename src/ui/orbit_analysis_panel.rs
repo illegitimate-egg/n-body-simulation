@@ -1,6 +1,6 @@
-use egui::{Checkbox, RichText};
+use egui::{Checkbox, ProgressBar, RichText};
 
-use crate::{phys::orbit_analysis, state::State};
+use crate::state::State;
 
 fn format_f32_option(input: Option<f32>) -> String {
     input
@@ -31,18 +31,19 @@ pub fn draw_orbit_analysis_panel(ui_ctx: &egui::Context, state: &mut State) {
         }
         ui_ctx.set_fonts(fonts);
 
+        ui.checkbox(&mut state.analysis_enabled, "Run orbital analysis");
+        {
+            let status = state.orbit_analysis_service.status.read().unwrap();
+            ui.add(ProgressBar::new(status.state.f32_complete()).text(status.state.to_string()));
+        }
+
         // This is a giant grid
         let ui_builder = egui::UiBuilder::new();
         ui.scope_builder(ui_builder, |ui| {
-            egui::Grid::new("orbit_grid").num_columns(2).spacing([20.0, 4.0]).striped(true).show(ui, |ui| {
-                if state.analysis_enabled {
-                    // TODO: Async this
-                    state.orbit_analysis_result = orbit_analysis::OrbitAnalysisResult::analyse_orbits(
-                        &state.objects,
-                        state.analysis_secondary,
-                    );
-
-                    if let Some(orbit_analysis) = &state.orbit_analysis_result {
+            egui::Grid::new("orbit_grid").num_columns(2).spacing([20.0, 2.0]).striped(true).show(ui, |ui| {
+                if state.analysis_window_open {
+                    let orbit_analysis = state.orbit_analysis_result.read().unwrap();
+                    if let Some(orbit_analysis) = &*orbit_analysis {
                         ui.label(RichText::new("Body information:").italics().size(20.0));
                         ui.separator();
                         ui.end_row();
@@ -94,6 +95,11 @@ pub fn draw_orbit_analysis_panel(ui_ctx: &egui::Context, state: &mut State) {
                         ui.end_row();
 
                         ui.collapsing("Analysis Information", |ui| {
+                            let status = state.orbit_analysis_service.status.read().unwrap();
+                            ui.label(format!("Last runtime {}ms", status.last_runtime_ms));
+                            ui.label(format!("Last update {:?}", status.last_update));
+                            ui.label(format!("Analyses Completed {}", status.analyses_completed));
+
                             ui.label("Candidate score is the measure the orbit analyser uses to dertermine the orbital primary. The body with the lowest score is picked (or if two bodies have the same score the one with the lower index) is picked for analysis. Score is based on several factors. For bound orbits it's the osculating period divided by 100. If the orbit is unbound the distance to the secondary is used as the score");
                             ui.label("Possible Primary Scores:");
                                 ui.horizontal(|ui| {
@@ -110,7 +116,7 @@ pub fn draw_orbit_analysis_panel(ui_ctx: &egui::Context, state: &mut State) {
                             }
                         });
                     } else {
-                        println!("No analysis/Computing...");
+                        ui.label(RichText::new("No analysis/Computing...").italics().size(20.0));
                     }
                 }
             })

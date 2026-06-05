@@ -15,10 +15,11 @@ pub fn draw_prediction_ui(state: &mut State) {
     if state.prediction_dirty {
         if state.predict_future {
             let max_steps = (state.fw_predict_d_epoch / state.fixed_dt).round() as usize;
+            let objects = state.objects.read().unwrap();
             state.future_predictor = Some(Predictor {
-                objects: state.objects.clone(),
-                objects_terminal: state.objects.clone(),
-                path: VecDeque::with_capacity(max_steps * state.objects.len()),
+                objects: objects.clone(),
+                objects_terminal: objects.clone(),
+                path: VecDeque::with_capacity(max_steps * objects.len()),
                 steps_completed: 0,
                 max_steps,
                 direction: PredictionDirection::Future,
@@ -27,12 +28,12 @@ pub fn draw_prediction_ui(state: &mut State) {
             state.future_predictor.as_mut().unwrap().simulate_steps(
                 &mut state.y4_integrator,
                 state.fixed_dt,
-                state.objects.len(),
+                objects.len(),
             );
 
             state.fw_pred_d_allocs = Some(DPAllocations {
                 // The color given here is actually completely irrelevent
-                colors: vec![GREEN; state.objects.len() * max_steps].into_boxed_slice(),
+                colors: vec![GREEN; objects.len() * max_steps].into_boxed_slice(),
                 path_data: vec![Vec2::ZERO; max_steps].into_boxed_slice(),
             });
         } else {
@@ -41,10 +42,11 @@ pub fn draw_prediction_ui(state: &mut State) {
         }
         if state.predict_past {
             let max_steps = (state.bw_predict_d_epoch / state.fixed_dt).round() as usize;
+            let objects = state.objects.read().unwrap();
             state.past_predictor = Some(Predictor {
-                objects: state.objects.clone(),
-                objects_terminal: state.objects.clone(),
-                path: VecDeque::with_capacity(max_steps * state.objects.len()),
+                objects: objects.clone(),
+                objects_terminal: objects.clone(),
+                path: VecDeque::with_capacity(max_steps * objects.len()),
                 steps_completed: 0,
                 max_steps,
                 direction: PredictionDirection::Past,
@@ -53,11 +55,11 @@ pub fn draw_prediction_ui(state: &mut State) {
             state.past_predictor.as_mut().unwrap().simulate_steps(
                 &mut state.y4_integrator,
                 -state.fixed_dt,
-                state.objects.len(),
+                objects.len(),
             ); // This simulation leaves the terminal, ready to be rolled
             //
             state.bw_pred_d_allocs = Some(DPAllocations {
-                colors: vec![RED; state.objects.len() * max_steps].into_boxed_slice(),
+                colors: vec![RED; objects.len() * max_steps].into_boxed_slice(),
                 path_data: vec![Vec2::ZERO; max_steps].into_boxed_slice(),
             });
         } else {

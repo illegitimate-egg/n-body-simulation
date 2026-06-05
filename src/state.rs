@@ -1,4 +1,7 @@
+use std::sync::{Arc, RwLock};
+
 use crate::{
+    r#async::OrbitAnalysisService,
     objects::Objects,
     phys::{Predictor, Y4Integrator, orbit_analysis::OrbitAnalysisResult},
     render::DPAllocations,
@@ -29,7 +32,7 @@ pub enum MouseStatus {
 }
 
 pub struct State {
-    pub objects: Objects,
+    pub objects: Arc<RwLock<Objects>>,
     pub ut: f32,
 
     pub mode: Mode,
@@ -51,8 +54,9 @@ pub struct State {
 
     pub prediction_dirty: bool,
 
-    pub orbit_analysis_result: Option<OrbitAnalysisResult>,
-    pub analysis_secondary: usize,
+    pub orbit_analysis_result: Arc<RwLock<Option<OrbitAnalysisResult>>>,
+    pub orbit_analysis_service: OrbitAnalysisService,
+    pub analysis_secondary: Arc<RwLock<usize>>,
     pub analysis_enabled: bool,
     pub analysis_window_open: bool,
 

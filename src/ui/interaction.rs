@@ -27,20 +27,23 @@ pub fn handle_interaction(state: &mut State) {
                 }
 
                 let mut found_index = None;
-                for i in 0..state.objects.len() {
-                    let radius = Circle::new(
-                        state.objects.position_x[i],
-                        state.objects.position_y[i],
-                        5.0 / 1000.0, // 1000 is the zoom factor
-                    );
-                    if radius.contains(
-                        &state
-                            .camera_controller
-                            .camera
-                            .screen_to_world(mouse_position().into()),
-                    ) {
-                        found_index = Some(i);
-                        break;
+                {
+                    let objects = state.objects.read().unwrap();
+                    for i in 0..objects.len() {
+                        let radius = Circle::new(
+                            objects.position_x[i],
+                            objects.position_y[i],
+                            5.0 / 1000.0, // 1000 is the zoom factor
+                        );
+                        if radius.contains(
+                            &state
+                                .camera_controller
+                                .camera
+                                .screen_to_world(mouse_position().into()),
+                        ) {
+                            found_index = Some(i);
+                            break;
+                        }
                     }
                 }
 
@@ -54,9 +57,11 @@ pub fn handle_interaction(state: &mut State) {
                     .camera_controller
                     .camera
                     .screen_to_world(mouse_position().into());
-                state
-                    .objects
-                    .insert_object(position, Vec2::new(0.0, 0.0), 1000000.0);
+                state.objects.write().unwrap().insert_object(
+                    position,
+                    Vec2::new(0.0, 0.0),
+                    1000000.0,
+                );
 
                 state.mouse_state = MouseStatus::Released;
                 state.prediction_dirty = true;
@@ -95,8 +100,12 @@ pub fn handle_interaction(state: &mut State) {
                     .camera_controller
                     .camera
                     .screen_to_world(mouse_position().into());
-                state.objects.position_x[index] = position.x;
-                state.objects.position_y[index] = position.y;
+
+                {
+                    let mut objects = state.objects.write().unwrap();
+                    objects.position_x[index] = position.x;
+                    objects.position_y[index] = position.y;
+                }
                 state.prediction_dirty = true;
             }
         }
@@ -106,12 +115,9 @@ pub fn handle_interaction(state: &mut State) {
     // TODO: Performance Gainz by evaluating circle around the mouse
     if is_mouse_button_down(MouseButton::Right) {
         let mut found_index = None;
-        for i in 0..state.objects.len() {
-            let radius = Circle::new(
-                state.objects.position_x[i],
-                state.objects.position_y[i],
-                5.0 / 1000.0,
-            );
+        let objects = state.objects.read().unwrap();
+        for i in 0..objects.len() {
+            let radius = Circle::new(objects.position_x[i], objects.position_y[i], 5.0 / 1000.0);
             if radius.contains(
                 &state
                     .camera_controller

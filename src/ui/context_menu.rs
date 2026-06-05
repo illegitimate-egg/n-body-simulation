@@ -11,6 +11,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
     let mut remove_object = false;
     let mut removed_object_index = 0;
     if let Some(ctx_now) = state.ctx_menu.as_mut() {
+        let mut objects = state.objects.write().unwrap();
         let ctx_menu_window = egui::Window::new(format!("Mass {}", ctx_now.object))
             .fixed_pos(ctx_now.position)
             .collapsible(false)
@@ -22,9 +23,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
                 }
                 let mass_label = ui.label("Object mass / kg");
                 if ui
-                    .add(egui::DragValue::new(
-                        &mut state.objects.mass[ctx_now.object],
-                    ))
+                    .add(egui::DragValue::new(&mut objects.mass[ctx_now.object]))
                     .labelled_by(mass_label.id)
                     .changed()
                 {
@@ -35,7 +34,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
                 ui.columns(2, |colui| {
                     if colui[0]
                         .add(egui::DragValue::new(
-                            &mut state.objects.position_x[ctx_now.object],
+                            &mut objects.position_x[ctx_now.object],
                         ))
                         .changed()
                     {
@@ -43,7 +42,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
                     }
                     if colui[1]
                         .add(egui::DragValue::new(
-                            &mut state.objects.position_y[ctx_now.object],
+                            &mut objects.position_y[ctx_now.object],
                         ))
                         .changed()
                     {
@@ -55,7 +54,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
                 ui.columns(2, |colui| {
                     if colui[0]
                         .add(egui::DragValue::new(
-                            &mut state.objects.velocity_x[ctx_now.object],
+                            &mut objects.velocity_x[ctx_now.object],
                         ))
                         .changed()
                     {
@@ -63,7 +62,7 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
                     };
                     if colui[1]
                         .add(egui::DragValue::new(
-                            &mut state.objects.velocity_y[ctx_now.object],
+                            &mut objects.velocity_y[ctx_now.object],
                         ))
                         .changed()
                     {
@@ -75,7 +74,8 @@ pub fn draw_ctx_menu(ui_ctx: &egui::Context, state: &mut State) {
         ctx_now.interaction_rect = ctx_menu_window.unwrap().response.interact_rect;
     }
     if remove_object {
-        state.objects.remove_object(removed_object_index);
+        let mut objects = state.objects.write().unwrap();
+        objects.remove_object(removed_object_index);
         state.ctx_menu = None;
     }
 }
