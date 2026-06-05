@@ -61,6 +61,7 @@ pub struct OrbitAnalysisService {
 
     objects: Arc<RwLock<Objects>>,
     secondary: Arc<RwLock<usize>>,
+    draw_kepler_conic: Arc<AtomicBool>,
 }
 
 impl OrbitAnalysisService {
@@ -68,6 +69,7 @@ impl OrbitAnalysisService {
         objects: Arc<RwLock<Objects>>,
         analysis_result: Arc<RwLock<Option<OrbitAnalysisResult>>>,
         secondary: Arc<RwLock<usize>>,
+        draw_kepler_conic: Arc<AtomicBool>,
     ) -> Self {
         Self {
             thread: None,
@@ -76,6 +78,7 @@ impl OrbitAnalysisService {
             latest_result: analysis_result,
             objects,
             secondary,
+            draw_kepler_conic,
         }
     }
 
@@ -91,6 +94,7 @@ impl OrbitAnalysisService {
         let latest_result = self.latest_result.clone();
         let objects = self.objects.clone();
         let secondary = self.secondary.clone();
+        let draw_kepler_conic = self.draw_kepler_conic.clone();
 
         self.thread = Some(std::thread::spawn(move || {
             while running.load(Ordering::Relaxed) {
@@ -100,10 +104,16 @@ impl OrbitAnalysisService {
 
                 let start = Instant::now();
 
+                let objects_clone = objects.read().unwrap().clone();
+                let secondary_clone = secondary.read().unwrap().clone();
+                let draw_kepler_conic = draw_kepler_conic.load(Ordering::Relaxed);
+
                 let result = {
-                    let objects = objects.read().unwrap();
-                    let secondary = secondary.read().unwrap();
-                    OrbitAnalysisResult::analyse_orbits(&objects, *secondary)
+                    OrbitAnalysisResult::analyse_orbits(
+                        &objects_clone,
+                        secondary_clone,
+                        draw_kepler_conic,
+                    )
                 };
 
                 {
@@ -119,7 +129,7 @@ impl OrbitAnalysisService {
                 }
 
                 // TODO:: Make this true deltatime
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }));
     }

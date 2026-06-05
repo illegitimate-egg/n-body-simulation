@@ -102,10 +102,20 @@ pub struct OrbitAnalysisResult {
     /// The angular position (phase) of the secondary in its cycle
     pub true_anomaly: f32,
 
+    /// Box containing position of points necessary to draw a kepler conic
+    /// ConicAnnotations
+    pub conic: Option<(Box<[Vec2]>, ConicAnnotations)>,
+
     /// Stores a set of tuples containing the osculating period of the secondary around each
     /// possible primary. The lowest one is used.
     // TODO: Is this really necessary?
     pub primary_candidate_scores: Box<[(usize, f32)]>,
+}
+
+#[derive(Debug)]
+pub struct ConicAnnotations {
+    pub apoapsis: Option<Vec2>,
+    pub periapsis: Vec2,
 }
 
 /// This is used to get computed values from the osculating period finder into the main calculation
@@ -113,7 +123,7 @@ pub struct OrbitAnalysisResult {
 struct StageOneInfo {
     mu: f32,
 
-    // position_primary: Vec2,
+    position_primary: Vec2,
     // velocity_primary: Vec2,
     // position_secondary: Vec2,
     // velocity_secondary: Vec2,
@@ -130,7 +140,7 @@ struct StageOneInfo {
 }
 
 impl OrbitAnalysisResult {
-    pub fn analyse_orbits(objects: &Objects, secondary: usize) -> Option<Self> {
+    pub fn analyse_orbits(objects: &Objects, secondary: usize, kepler_conic: bool) -> Option<Self> {
         // Lower is better
         let mut best_score = f32::MAX;
         let mut best_primary = 0;
@@ -181,7 +191,7 @@ impl OrbitAnalysisResult {
 
                 s1 = Some(StageOneInfo {
                     mu,
-                    // position_primary,
+                    position_primary,
                     // velocity_primary,
                     // position_secondary,
                     // velocity_secondary,
@@ -274,6 +284,20 @@ impl OrbitAnalysisResult {
             let speed_relative_to_circular = s1.mag_vel / circular_velocity;
             let speed_relative_to_escape = s1.mag_vel / escape_velocity;
 
+            let kepler_conic_data = if kepler_conic {
+                Some(OrbitAnalysisResult::generate_conic_vertices(
+                    s1.position_primary,
+                    s1.SMA,
+                    mag_e,
+                    eccentricity,
+                    arg_pe,
+                    Ap,
+                    Pe,
+                ))
+            } else {
+                None
+            };
+
             Some(OrbitAnalysisResult {
                 primary: best_primary,
                 secondary,
@@ -300,9 +324,66 @@ impl OrbitAnalysisResult {
                 circular_velocity,
                 speed_relative_to_circular,
                 speed_relative_to_escape,
+                conic: kepler_conic_data,
             })
         } else {
             None
         }
+    }
+
+    fn generate_conic_vertices(
+        primary_pos: Vec2,
+        SMA: f32,
+        eccentricity: f32,
+        eccentricity_vec: Vec2,
+        argument_of_periapsis: f32,
+        apoapsis: Option<f32>,
+        periapsis: f32,
+    ) -> (Box<[Vec2]>, ConicAnnotations) {
+        const SEGMENTS: usize = 256;
+
+        let mut points = vec![Vec2::ZERO; SEGMENTS].into_boxed_slice();
+
+        for i in 0..SEGMENTS {
+            let nu = if eccentricity <= 1.0 {
+                i as f32 / SEGMENTS as f32 * std::f32::consts::TAU
+            } else {
+                let nu_max = (-(1.0 / eccentricity)).acos() - 0.05;
+                -nu_max + (2.0 * nu_max) * i as f32 / SEGMENTS as f32
+            };
+
+            let cos_nu = nu.cos();
+            let sin_nu = nu.sin();
+
+            let p = SMA * (1.0 - eccentricity * eccentricity);
+            let r = p / (1.0 + eccentricity * cos_nu);
+
+            let x = r * cos_nu;
+            let y = r * sin_nu;
+
+            let cos_arg_pe = argument_of_periapsis.cos();
+            let sin_arg_pe = argument_of_periapsis.sin();
+
+            let x_rot = x * cos_arg_pe - y * sin_arg_pe;
+            let y_rot = x * sin_arg_pe + y * cos_arg_pe;
+
+            let world_x = primary_pos.x + x_rot;
+            let world_y = primary_pos.y + y_rot;
+
+            points[i] = Vec2::new(world_x, world_y);
+        }
+
+        let pe_direction = eccentricity_vec.normalize();
+
+        let orbit_annotations = ConicAnnotations {
+            apoapsis: if let Some(ap) = apoapsis {
+                Some(primary_pos - pe_direction * ap)
+            } else {
+                None
+            },
+            periapsis: primary_pos + pe_direction * periapsis,
+        };
+
+        (points, orbit_annotations)
     }
 }

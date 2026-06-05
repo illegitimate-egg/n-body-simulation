@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use crate::{
     r#async::OrbitAnalysisService,
@@ -56,6 +56,7 @@ pub struct State {
 
     pub orbit_analysis_result: Arc<RwLock<Option<OrbitAnalysisResult>>>,
     pub orbit_analysis_service: OrbitAnalysisService,
+    pub draw_kepler_conic: Arc<AtomicBool>,
     pub analysis_secondary: Arc<RwLock<usize>>,
     pub analysis_enabled: bool,
     pub analysis_window_open: bool,

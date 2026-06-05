@@ -80,7 +80,10 @@ pub fn draw_orbit_analysis_panel(ui_ctx: &egui::Context, state: &mut State) {
                         data_row(ui, "Mean Motion", format!("{}", format_f32_option(orbit_analysis.mean_motion)));
 
                         // TODO: Add ability to draw conic based on keplerian analysis
-                        ui.add_enabled(false, Checkbox::new(&mut false, "Draw Kepler conic [INOP]"));
+                        state.draw_kepler_conic.update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |mut conic_state| {
+                            ui.add(Checkbox::new(&mut conic_state, "Draw Kepler conic"));
+                            conic_state
+                        });
                         ui.end_row();
 
                         ui.label(RichText::new("Miscellaneous:").italics().size(20.0));

@@ -1,7 +1,10 @@
 #![cfg_attr(not(target_arch = "wasm32"), feature(portable_simd))]
 #![windows_subsystem = "windows"]
 
-use std::sync::{Arc, RwLock, atomic::Ordering};
+use std::sync::{
+    Arc, RwLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use macroquad::{conf::Conf, prelude::*};
 
@@ -45,6 +48,8 @@ async fn main() {
     let orbit_analysis_result = Arc::new(RwLock::new(None));
     let analysis_secondary: Arc<RwLock<usize>> = Arc::new(RwLock::new(0));
 
+    let draw_kepler_conic = Arc::new(AtomicBool::new(false));
+
     let mut state = State {
         objects: objects.clone(),
         ut: 0.0,
@@ -63,9 +68,10 @@ async fn main() {
         prediction_dirty: true,
         orbit_analysis_result: orbit_analysis_result.clone(),
         orbit_analysis_service: OrbitAnalysisService::new(
-            objects,
+            objects.clone(),
             orbit_analysis_result.clone(),
             analysis_secondary.clone(),
+            draw_kepler_conic.clone(),
         ),
         mouse_state: MouseStatus::Released,
         ctx_menu: None,
@@ -76,6 +82,7 @@ async fn main() {
         analysis_secondary: analysis_secondary.clone(),
         analysis_enabled: true,
         analysis_window_open: true,
+        draw_kepler_conic: draw_kepler_conic.clone(),
     };
 
     {
@@ -108,7 +115,7 @@ async fn main() {
     }
 
     loop {
-        if state.analysis_enabled {
+        if state.analysis_enabled && state.analysis_window_open {
             if !state.orbit_analysis_service.running.load(Ordering::Relaxed) {
                 // Go forth my son, and inherit the Earth
                 state.orbit_analysis_service.start();

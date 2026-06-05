@@ -22,6 +22,7 @@ pub fn simulation_panel(ui_ctx: &egui::Context, state: &mut State) {
                     }
 
                     ui.add(egui::Slider::new(&mut state.time_multiplier, -1f32..=4f32).text("Time warp (-1x - 4x)"));
+                    ui.checkbox(&mut state.analysis_window_open, "Orbital Analysis");
 
                     ui.separator();
 
