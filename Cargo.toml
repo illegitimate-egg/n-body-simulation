@@ -4,10 +4,15 @@ version = "0.0.4"
 edition = "2024"
 
 [dependencies]
-egui = "0.31.1"
-egui-macroquad = "0.17.3"
-macroquad = "0.4.14"
+anyhow = "1.0"
+winit = { version = "0.30", features = ["android-native-activity"] }
+env_logger = "0.11"
+log = "0.4"
+wgpu = { version = "29.0", features = ["webgpu", "webgl"] }
+pollster = "0.4"
+egui = "0.34"
 physical_constants = "0.5.0"
+egui-wgpu = { version = "0.34.3", features = ["winit", "wayland", "x11"] }
 
 [profile.release]
 opt-level = 3

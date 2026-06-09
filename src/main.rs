@@ -6,8 +6,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use macroquad::{conf::Conf, prelude::*};
-
 use crate::{
     r#async::OrbitAnalysisService,
     objects::Objects,
@@ -25,18 +23,8 @@ mod platform;
 mod render;
 mod state;
 mod ui;
+mod engine;
 
-fn window_conf() -> Conf {
-    Conf {
-        miniquad_conf: miniquad::conf::Conf::default(),
-        update_on: None,
-        default_filter_mode: FilterMode::Linear,
-        draw_call_vertex_capacity: 70_000,
-        draw_call_index_capacity: 70_000,
-    }
-}
-
-#[macroquad::main(window_conf)]
 async fn main() {
     // LaTeX maths font available at https://svn.tug.org:8369/texlive/trunk/Master/texmf-dist/fonts/opentype/public/lm/lmmath.otf?revision=23153&pathrev=23153&view=markup
     let maths_font =
