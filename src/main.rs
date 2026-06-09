@@ -1,5 +1,5 @@
 #![cfg_attr(not(target_arch = "wasm32"), feature(portable_simd))]
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::{
     Arc, RwLock,
